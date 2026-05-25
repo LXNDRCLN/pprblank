@@ -224,12 +224,6 @@
     return out;
   }
 
-  function computeLines(ff, fs, fb, fi, text, bw) {
-    const tmp = document.createElement('canvas').getContext('2d');
-    tmp.font = [fi ? 'italic' : '', fb ? 'bold' : '', fs + 'px', '"' + ff + '"'].filter(Boolean).join(' ');
-    return wrapText(tmp, text, bw ? bw - 8 : 0);
-  }
-
   function drawTextObj(ctx, obj) {
     if (!obj.text || obj._editing) return;
     ctx.save();
@@ -237,9 +231,7 @@
     ctx.fillStyle    = obj.color;
     ctx.textBaseline = 'top';
     const lineH = obj.fontSize * 1.3;
-    const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
-    const lines = obj.lines || wrapText(ctx, obj.text, wrapW);
-    lines.forEach((line, i) => {
+    obj.text.split('\n').forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + i * lineH);
       if (obj.fontUnder) {
         const tw = ctx.measureText(line).width;
@@ -259,8 +251,7 @@
     if (obj.type === 'text') {
       mc.save();
       mc.font = buildFont(obj);
-      const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
-      const lines = obj.lines || wrapText(mc, obj.text, wrapW);
+      const lines = obj.text.split('\n');
       let maxW = obj.boxWidth || 20;
       if (!obj.boxWidth) lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
       mc.restore();
@@ -457,10 +448,19 @@
     });
   }
 
+  function bakeText(rawText, ff, fs, fb, fi, bw) {
+    if (!bw) return rawText;
+    mc.save();
+    mc.font = [fi ? 'italic' : '', fb ? 'bold' : '', fs + 'px', '"' + ff + '"'].filter(Boolean).join(' ');
+    const lines = wrapText(mc, rawText, bw - 8);
+    mc.restore();
+    return lines.join('\n');
+  }
+
   function commitText() {
     if (!activeTextarea) return;
     const ta     = activeTextarea;
-    const text   = ta.value;
+    const raw    = ta.value;
     activeTextarea = null;
     const bw     = parseInt(ta.dataset.bw) || 0;
     const editId = ta.dataset.editId ? parseInt(ta.dataset.editId) : null;
@@ -469,16 +469,12 @@
       const obj = objects.find(o => o.id === editId);
       if (obj) {
         obj._editing = false;
-        if (text.trim()) {
-          obj.text      = text;
+        if (raw.trim()) {
+          obj.text      = bakeText(raw, fontFamily, fontSize, fontBold, fontItalic, bw);
           obj.boxWidth  = bw;
-          obj.fontFamily = fontFamily;
-          obj.fontSize   = fontSize;
-          obj.fontBold   = fontBold;
-          obj.fontItalic = fontItalic;
-          obj.fontUnder  = fontUnder;
-          obj.color      = color;
-          obj.lines      = computeLines(fontFamily, fontSize, fontBold, fontItalic, text, bw);
+          obj.fontFamily = fontFamily; obj.fontSize  = fontSize;
+          obj.fontBold   = fontBold;   obj.fontItalic = fontItalic;
+          obj.fontUnder  = fontUnder;  obj.color      = color;
         } else {
           objects = objects.filter(o => o.id !== editId);
         }
@@ -486,13 +482,13 @@
       render();
       saveState();
     } else {
-      if (text.trim()) {
-        const lines = computeLines(fontFamily, fontSize, fontBold, fontItalic, text, bw);
+      if (raw.trim()) {
         objects.push({
           id: makeId(), type: 'text',
           x: parseInt(ta.dataset.cx),
           y: parseInt(ta.dataset.cy),
-          boxWidth: bw, text, lines,
+          boxWidth: bw,
+          text: bakeText(raw, fontFamily, fontSize, fontBold, fontItalic, bw),
           fontFamily, fontSize, fontBold, fontItalic, fontUnder, color,
         });
         render();
