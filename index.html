@@ -13,6 +13,17 @@
     <aside id="sidebar">
       <div id="logo">ppr<strong>blank</strong></div>
 
+      <!-- Select -->
+      <div class="tool-section">
+        <span class="section-label">Select</span>
+        <div class="tool-row">
+          <button class="tool-btn" data-tool="select" title="Select &amp; Move (V)">
+            <svg viewBox="0 0 24 24"><path d="M4 2 L4 20 L8.5 15.5 L11.5 22 L13.5 21 L10.5 14.5 L17 14.5 Z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Draw -->
       <div class="tool-section">
         <span class="section-label">Draw</span>
         <div class="tool-row">
@@ -31,11 +42,15 @@
         </div>
       </div>
 
+      <!-- Shapes -->
       <div class="tool-section">
         <span class="section-label">Shapes</span>
         <div class="tool-row">
           <button class="tool-btn" data-tool="rect" title="Rectangle">
             <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+          </button>
+          <button class="tool-btn" data-tool="square" title="Square">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="1" fill="none" stroke="currentColor" stroke-width="2"/></svg>
           </button>
           <button class="tool-btn" data-tool="ellipse" title="Ellipse">
             <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="6" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -52,6 +67,7 @@
         </div>
       </div>
 
+      <!-- Fill & Text -->
       <div class="tool-section">
         <span class="section-label">Fill &amp; Text</span>
         <div class="tool-row">
@@ -73,7 +89,7 @@
         <input type="range" id="size-slider" min="1" max="50" value="4">
       </div>
 
-      <!-- Shape fill style (shown only for shape tools) -->
+      <!-- Shape fill style -->
       <div class="tool-section" id="shape-fill-section" style="display:none">
         <span class="section-label">Shape Fill</span>
         <div class="toggle-row">
@@ -82,7 +98,7 @@
         </div>
       </div>
 
-      <!-- Text options (shown only for text tool) -->
+      <!-- Text options -->
       <div class="tool-section" id="text-options-section" style="display:none">
         <span class="section-label">Font</span>
         <select id="font-family">
@@ -103,6 +119,12 @@
           <button class="style-btn" id="italic-btn" title="Italic"><i>I</i></button>
           <button class="style-btn" id="underline-btn" title="Underline"><u>U</u></button>
         </div>
+      </div>
+
+      <!-- Selection info (shown when object is selected) -->
+      <div class="tool-section" id="select-info" style="display:none">
+        <span class="section-label">Selected</span>
+        <button id="delete-selected-btn" class="delete-btn">&#x2715; Delete</button>
       </div>
 
       <!-- Color -->

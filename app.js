@@ -1,11 +1,10 @@
 (function () {
   'use strict';
 
-  // ── Canvas dimensions (A4 at 96 dpi) ──────────────────────
+  // ── Constants ──────────────────────────────────────────────
   const A4_W = 794;
   const A4_H = 1123;
 
-  // ── Color palette ──────────────────────────────────────────
   const PALETTE = [
     '#000000','#1c1c1c','#3d3d3d','#666666','#909090','#b3b3b3','#d6d6d6','#ffffff',
     '#e53935','#e64a19','#f9a825','#43a047','#00897b','#1e88e5','#5e35b1','#d81b60',
@@ -30,6 +29,8 @@
   const underlineBtn  = document.getElementById('underline-btn');
   const shapeFillSec  = document.getElementById('shape-fill-section');
   const textOptSec    = document.getElementById('text-options-section');
+  const selectInfoSec = document.getElementById('select-info');
+  const deleteSelBtn  = document.getElementById('delete-selected-btn');
   const undoBtn       = document.getElementById('undo-btn');
   const redoBtn       = document.getElementById('redo-btn');
   const clearBtn      = document.getElementById('clear-btn');
@@ -37,7 +38,16 @@
   const exportJpg     = document.getElementById('export-jpg');
   const canvasWrapper = document.getElementById('canvas-wrapper');
 
-  // ── State ──────────────────────────────────────────────────
+  // ── Offscreen pixel canvas (freehand + fill layer) ─────────
+  // Shapes and text live in the objects array above this layer.
+  const pixelCanvas = document.createElement('canvas');
+  pixelCanvas.width  = A4_W;
+  pixelCanvas.height = A4_H;
+  const pc = pixelCanvas.getContext('2d');
+  pc.fillStyle = '#ffffff';
+  pc.fillRect(0, 0, A4_W, A4_H);
+
+  // ── Tool state ─────────────────────────────────────────────
   let tool       = 'pen';
   let color      = '#000000';
   let brushSize  = 4;
@@ -48,10 +58,25 @@
   let fontItalic = false;
   let fontUnder  = false;
 
-  let drawing = false;
-  let startX = 0, startY = 0;
-  let lastX  = 0, lastY  = 0;
+  // ── Objects (shapes + text — selectable/movable) ───────────
+  let objects = [];
+  let nextId  = 0;
+  function makeId() { return ++nextId; }
+
+  // ── Selection state ────────────────────────────────────────
+  let selectedId  = null;
+  let isDragging  = false;
+  let dragStartX  = 0, dragStartY = 0;
+  let dragSnap    = null;   // deep copy of object at drag start
+  let didMove     = false;
+
+  // ── Drawing state ──────────────────────────────────────────
+  let drawing    = false;
+  let startX     = 0, startY = 0;
+  let lastX      = 0, lastY  = 0;
   let sprayTimer = null;
+
+  // ── Text state ─────────────────────────────────────────────
   let activeTextarea = null;
 
   // ── History ────────────────────────────────────────────────
@@ -59,142 +84,75 @@
   let hist    = [];
   let histIdx = -1;
 
+  function makeEntry() {
+    return {
+      pixelData: pc.getImageData(0, 0, A4_W, A4_H),
+      objects:   JSON.parse(JSON.stringify(objects)),
+    };
+  }
+
   function saveState() {
     hist.splice(histIdx + 1);
-    hist.push(mc.getImageData(0, 0, A4_W, A4_H));
+    hist.push(makeEntry());
     if (hist.length > MAX_HIST) hist.shift();
     else histIdx++;
   }
 
-  function undo() {
-    if (histIdx > 0) { histIdx--; mc.putImageData(hist[histIdx], 0, 0); }
+  function restoreEntry(e) {
+    pc.putImageData(e.pixelData, 0, 0);
+    objects = JSON.parse(JSON.stringify(e.objects));
+    selectedId = null;
+    render();
+    renderOverlay();
+    updateSelectUI();
   }
 
-  function redo() {
-    if (histIdx < hist.length - 1) { histIdx++; mc.putImageData(hist[histIdx], 0, 0); }
-  }
+  function undo() { if (histIdx > 0)                   { histIdx--; restoreEntry(hist[histIdx]); } }
+  function redo() { if (histIdx < hist.length - 1)     { histIdx++; restoreEntry(hist[histIdx]); } }
 
-  // ── Canvas init ────────────────────────────────────────────
-  mainCanvas.width    = A4_W;
-  mainCanvas.height   = A4_H;
+  // ── Canvas setup ───────────────────────────────────────────
+  mainCanvas.width     = A4_W;
+  mainCanvas.height    = A4_H;
   overlayCanvas.width  = A4_W;
   overlayCanvas.height = A4_H;
 
-  mc.fillStyle = '#ffffff';
-  mc.fillRect(0, 0, A4_W, A4_H);
-  saveState();
-
-  // ── Palette ────────────────────────────────────────────────
-  function buildPalette() {
-    PALETTE.forEach(c => {
-      const btn = document.createElement('button');
-      btn.className = 'color-swatch';
-      btn.style.background = c;
-      btn.dataset.color = c;
-      btn.title = c;
-      btn.addEventListener('click', () => setColor(c));
-      swatchesEl.appendChild(btn);
-    });
+  // ── Render: pixel layer + objects → main canvas ────────────
+  function render() {
+    mc.fillStyle = '#ffffff';
+    mc.fillRect(0, 0, A4_W, A4_H);
+    mc.drawImage(pixelCanvas, 0, 0);
+    objects.forEach(obj => drawObject(mc, obj));
   }
 
-  function setColor(c) {
-    color = c;
-    colorBox.style.background = c;
-    if (/^#[0-9a-f]{6}$/i.test(c)) colorPicker.value = c;
-    document.querySelectorAll('.color-swatch').forEach(sw => {
-      sw.classList.toggle('selected', sw.dataset.color === c);
-    });
+  // ── Object drawing ─────────────────────────────────────────
+  function drawObject(ctx, obj) {
+    if (obj.type === 'text') drawTextObj(ctx, obj);
+    else                     drawShapeObj(ctx, obj);
   }
 
-  // ── Tool selection ─────────────────────────────────────────
-  const SHAPE_TOOLS = new Set(['rect', 'ellipse', 'line', 'arrow', 'triangle']);
-
-  function selectTool(t) {
-    commitText();
-    tool = t;
-    document.querySelectorAll('.tool-btn').forEach(b =>
-      b.classList.toggle('active', b.dataset.tool === t));
-    shapeFillSec.style.display = SHAPE_TOOLS.has(t) ? 'block' : 'none';
-    textOptSec.style.display   = t === 'text'        ? 'block' : 'none';
-    mainCanvas.style.cursor    = t === 'text' ? 'text' : 'crosshair';
-  }
-
-  // ── Coordinate helper ──────────────────────────────────────
-  function getPos(e) {
-    const r  = mainCanvas.getBoundingClientRect();
-    const sx = A4_W / r.width;
-    const sy = A4_H / r.height;
-    const cx = (e.touches ? e.touches[0].clientX : e.clientX);
-    const cy = (e.touches ? e.touches[0].clientY : e.clientY);
-    return { x: Math.round((cx - r.left) * sx), y: Math.round((cy - r.top) * sy) };
-  }
-
-  // ── Freehand drawing ───────────────────────────────────────
-  function freehandStart(x, y) {
-    mc.beginPath();
-    mc.moveTo(x, y);
-    lastX = x; lastY = y;
-  }
-
-  function freehandMove(x, y) {
-    if (tool === 'eraser') {
-      mc.globalCompositeOperation = 'source-over';
-      mc.strokeStyle = '#ffffff';
-      mc.lineWidth   = brushSize * 4;
-      mc.globalAlpha = 1;
-    } else if (tool === 'brush') {
-      mc.globalCompositeOperation = 'source-over';
-      mc.strokeStyle = color;
-      mc.lineWidth   = brushSize * 2.5;
-      mc.globalAlpha = 0.65;
-    } else {
-      mc.globalCompositeOperation = 'source-over';
-      mc.strokeStyle = color;
-      mc.lineWidth   = brushSize;
-      mc.globalAlpha = 1;
-    }
-    mc.lineCap    = 'round';
-    mc.lineJoin   = 'round';
-    mc.lineTo(x, y);
-    mc.stroke();
-    mc.beginPath();
-    mc.moveTo(x, y);
-    lastX = x; lastY = y;
-  }
-
-  function freehandEnd() {
-    mc.globalAlpha = 1;
-    mc.globalCompositeOperation = 'source-over';
-  }
-
-  // ── Spray ──────────────────────────────────────────────────
-  function spray(x, y) {
-    const density = 25 + brushSize * 2;
-    const radius  = brushSize * 4;
-    mc.fillStyle  = color;
-    for (let i = 0; i < density; i++) {
-      const a  = Math.random() * Math.PI * 2;
-      const r  = Math.random() * radius;
-      mc.fillRect(x + r * Math.cos(a), y + r * Math.sin(a), 1.5, 1.5);
-    }
-  }
-
-  // ── Shapes ─────────────────────────────────────────────────
-  function applyShapeStyle(ctx) {
-    ctx.strokeStyle = color;
-    ctx.fillStyle   = color;
-    ctx.lineWidth   = brushSize;
+  function drawShapeObj(ctx, obj) {
+    const { x1, y1, x2, y2, type, color: c, size: s, style: st } = obj;
+    const filled = st === 'filled';
+    ctx.save();
+    ctx.strokeStyle = c;
+    ctx.fillStyle   = c;
+    ctx.lineWidth   = s;
     ctx.lineCap     = 'round';
     ctx.lineJoin    = 'round';
     ctx.setLineDash([]);
-  }
 
-  function renderShape(ctx, x1, y1, x2, y2) {
-    const filled = shapeStyle === 'filled';
-    switch (tool) {
+    switch (type) {
       case 'rect': {
         if (filled) ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        break;
+      }
+      case 'square': {
+        const sLen = Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1));
+        const sx2  = x1 + Math.sign(x2 - x1) * sLen;
+        const sy2  = y1 + Math.sign(y2 - y1) * sLen;
+        if (filled) ctx.fillRect(x1, y1, sx2 - x1, sy2 - y1);
+        ctx.strokeRect(x1, y1, sx2 - x1, sy2 - y1);
         break;
       }
       case 'ellipse': {
@@ -208,108 +166,221 @@
       }
       case 'line': {
         ctx.beginPath();
-        ctx.moveTo(x1, y1);
-        ctx.lineTo(x2, y2);
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
         ctx.stroke();
         break;
       }
       case 'arrow': {
-        renderArrow(ctx, x1, y1, x2, y2);
+        const angle = Math.atan2(y2 - y1, x2 - x1);
+        const hl    = Math.max(18, s * 5);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - hl * Math.cos(angle - Math.PI / 6), y2 - hl * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(x2, y2);
+        ctx.lineTo(x2 - hl * Math.cos(angle + Math.PI / 6), y2 - hl * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
         break;
       }
       case 'triangle': {
         const mid = (x1 + x2) / 2;
         ctx.beginPath();
-        ctx.moveTo(mid, y1);
-        ctx.lineTo(x2, y2);
-        ctx.lineTo(x1, y2);
+        ctx.moveTo(mid, y1); ctx.lineTo(x2, y2); ctx.lineTo(x1, y2);
         ctx.closePath();
         if (filled) ctx.fill();
         ctx.stroke();
         break;
       }
     }
+    ctx.restore();
   }
 
-  function renderArrow(ctx, x1, y1, x2, y2) {
-    const angle   = Math.atan2(y2 - y1, x2 - x1);
-    const headLen = Math.max(18, brushSize * 5);
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6),
-               y2 - headLen * Math.sin(angle - Math.PI / 6));
-    ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6),
-               y2 - headLen * Math.sin(angle + Math.PI / 6));
-    ctx.stroke();
+  function buildFont(obj) {
+    return [
+      obj.fontItalic ? 'italic' : '',
+      obj.fontBold   ? 'bold'   : '',
+      obj.fontSize + 'px',
+      '"' + obj.fontFamily + '"',
+    ].filter(Boolean).join(' ');
+  }
+
+  function drawTextObj(ctx, obj) {
+    if (!obj.text) return;
+    ctx.save();
+    ctx.font         = buildFont(obj);
+    ctx.fillStyle    = obj.color;
+    ctx.textBaseline = 'top';
+    const lineH = obj.fontSize * 1.3;
+    obj.text.split('\n').forEach((line, i) => {
+      ctx.fillText(line, obj.x, obj.y + i * lineH);
+      if (obj.fontUnder) {
+        const tw = ctx.measureText(line).width;
+        const uy = obj.y + i * lineH + obj.fontSize + 2;
+        ctx.beginPath();
+        ctx.strokeStyle = obj.color;
+        ctx.lineWidth   = Math.max(1, obj.fontSize / 14);
+        ctx.moveTo(obj.x, uy); ctx.lineTo(obj.x + tw, uy);
+        ctx.stroke();
+      }
+    });
+    ctx.restore();
+  }
+
+  // ── Bounds & hit testing ───────────────────────────────────
+  function getBounds(obj) {
+    if (obj.type === 'text') {
+      mc.save();
+      mc.font = buildFont(obj);
+      const lines = obj.text.split('\n');
+      let maxW = 20;
+      lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
+      mc.restore();
+      return { x: obj.x, y: obj.y, w: maxW, h: lines.length * obj.fontSize * 1.3 };
+    }
+    const { x1, y1, x2, y2, type } = obj;
+    if (type === 'square') {
+      const sLen = Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1));
+      const sx2  = x1 + Math.sign(x2 - x1) * sLen;
+      const sy2  = y1 + Math.sign(y2 - y1) * sLen;
+      return { x: Math.min(x1, sx2), y: Math.min(y1, sy2), w: sLen, h: sLen };
+    }
+    return {
+      x: Math.min(x1, x2), y: Math.min(y1, y2),
+      w: Math.abs(x2 - x1),  h: Math.abs(y2 - y1),
+    };
+  }
+
+  function hitTest(obj, x, y) {
+    const b   = getBounds(obj);
+    const pad = Math.max(8, (obj.size || 1) / 2 + 5);
+    return x >= b.x - pad && x <= b.x + b.w + pad &&
+           y >= b.y - pad && y <= b.y + b.h + pad;
+  }
+
+  // ── Overlay: selection handles + shape preview ─────────────
+  function renderOverlay() {
+    oc.clearRect(0, 0, A4_W, A4_H);
+    if (selectedId !== null) {
+      const obj = objects.find(o => o.id === selectedId);
+      if (obj) drawSelectionBox(obj);
+    }
+  }
+
+  function drawSelectionBox(obj) {
+    const b   = getBounds(obj);
+    const pad = 7;
+    oc.save();
+    oc.strokeStyle = '#3a78d4';
+    oc.lineWidth   = 1.5;
+    oc.setLineDash([5, 3]);
+    oc.strokeRect(b.x - pad, b.y - pad, b.w + pad * 2, b.h + pad * 2);
+    oc.setLineDash([]);
+
+    const hx = b.x - pad, hy = b.y - pad, hw = b.w + pad * 2, hh = b.h + pad * 2;
+    const handles = [
+      [hx,          hy],          [hx + hw / 2, hy],          [hx + hw, hy],
+      [hx + hw,     hy + hh / 2], [hx + hw,     hy + hh],
+      [hx + hw / 2, hy + hh],     [hx,          hy + hh],     [hx, hy + hh / 2],
+    ];
+    handles.forEach(([cx, cy]) => {
+      oc.fillStyle   = '#ffffff';
+      oc.fillRect(cx - 4, cy - 4, 8, 8);
+      oc.strokeStyle = '#3a78d4';
+      oc.strokeRect(cx - 4, cy - 4, 8, 8);
+    });
+    oc.restore();
   }
 
   function previewShape(x1, y1, x2, y2) {
     oc.clearRect(0, 0, A4_W, A4_H);
-    applyShapeStyle(oc);
-    renderShape(oc, x1, y1, x2, y2);
+    drawShapeObj(oc, { x1, y1, x2, y2, type: tool, color, size: brushSize, style: shapeStyle });
   }
 
-  function commitShape(x1, y1, x2, y2) {
-    oc.clearRect(0, 0, A4_W, A4_H);
-    applyShapeStyle(mc);
-    renderShape(mc, x1, y1, x2, y2);
+  // ── Freehand (pen / brush / eraser) ───────────────────────
+  function freehandStart(x, y) {
+    pc.beginPath();
+    pc.moveTo(x, y);
+  }
+
+  function freehandMove(x, y) {
+    if (tool === 'eraser') {
+      pc.strokeStyle = '#ffffff';
+      pc.lineWidth   = brushSize * 4;
+      pc.globalAlpha = 1;
+    } else if (tool === 'brush') {
+      pc.strokeStyle = color;
+      pc.lineWidth   = brushSize * 2.5;
+      pc.globalAlpha = 0.65;
+    } else {
+      pc.strokeStyle = color;
+      pc.lineWidth   = brushSize;
+      pc.globalAlpha = 1;
+    }
+    pc.lineCap  = 'round';
+    pc.lineJoin = 'round';
+    pc.lineTo(x, y);
+    pc.stroke();
+    pc.beginPath();
+    pc.moveTo(x, y);
+    render();
+  }
+
+  function freehandEnd() {
+    pc.globalAlpha = 1;
+  }
+
+  // ── Spray ──────────────────────────────────────────────────
+  function doSpray(x, y) {
+    const density = 25 + brushSize * 2;
+    const radius  = brushSize * 4;
+    pc.fillStyle  = color;
+    for (let i = 0; i < density; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * radius;
+      pc.fillRect(x + r * Math.cos(a), y + r * Math.sin(a), 1.5, 1.5);
+    }
+    render();
   }
 
   // ── Flood fill ─────────────────────────────────────────────
   function hexToRgb(hex) {
-    return [
-      parseInt(hex.slice(1, 3), 16),
-      parseInt(hex.slice(3, 5), 16),
-      parseInt(hex.slice(5, 7), 16),
-    ];
+    return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
   }
 
   function floodFill(px, py) {
-    const imgData = mc.getImageData(0, 0, A4_W, A4_H);
+    const imgData = pc.getImageData(0, 0, A4_W, A4_H);
     const data    = imgData.data;
     const W = A4_W, H = A4_H;
     const base = (py * W + px) * 4;
-    const tR = data[base], tG = data[base + 1], tB = data[base + 2];
+    const tR = data[base], tG = data[base+1], tB = data[base+2];
     const [fR, fG, fB] = hexToRgb(color);
-
     if (tR === fR && tG === fG && tB === fB) return;
-
     const TOL = 30;
     function match(i) {
-      return Math.abs(data[i]   - tR) <= TOL &&
-             Math.abs(data[i+1] - tG) <= TOL &&
-             Math.abs(data[i+2] - tB) <= TOL;
+      return Math.abs(data[i]-tR)<=TOL && Math.abs(data[i+1]-tG)<=TOL && Math.abs(data[i+2]-tB)<=TOL;
     }
-
     const visited = new Uint8Array(W * H);
     const stack   = [py * W + px];
     visited[py * W + px] = 1;
-
     while (stack.length) {
       const pos = stack.pop();
-      const x   = pos % W;
-      const y   = (pos / W) | 0;
+      const xi  = pos % W;
       const i   = pos * 4;
       data[i] = fR; data[i+1] = fG; data[i+2] = fB; data[i+3] = 255;
-
-      const neighbors = [pos - 1, pos + 1, pos - W, pos + W];
-      for (const n of neighbors) {
-        if (n < 0 || n >= W * H) continue;
-        if (visited[n]) continue;
-        const nx = n % W, px2 = pos % W;
-        if (Math.abs(nx - px2) > 1) continue;
-        if (!match(n * 4)) continue;
+      for (const n of [pos-1, pos+1, pos-W, pos+W]) {
+        if (n < 0 || n >= W * H)          continue;
+        if (visited[n])                    continue;
+        if (Math.abs((n % W) - xi) > 1)   continue;
+        if (!match(n * 4))                 continue;
         visited[n] = 1;
         stack.push(n);
       }
     }
-    mc.putImageData(imgData, 0, 0);
+    pc.putImageData(imgData, 0, 0);
+    render();
   }
 
-  // ── Text ───────────────────────────────────────────────────
+  // ── Text tool ──────────────────────────────────────────────
   function placeTextInput(x, y) {
     commitText();
     const r   = mainCanvas.getBoundingClientRect();
@@ -331,8 +402,16 @@
     activeTextarea = ta;
     ta.focus();
 
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+      ta.style.width  = 'auto';
+      ta.style.width  = Math.max(80, ta.scrollWidth) + 'px';
+    });
     ta.addEventListener('blur',    () => commitText());
-    ta.addEventListener('keydown', e => { if (e.key === 'Escape') { ta.remove(); activeTextarea = null; } });
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { ta.remove(); activeTextarea = null; }
+    });
   }
 
   function commitText() {
@@ -340,41 +419,94 @@
     const ta   = activeTextarea;
     const text = ta.value;
     activeTextarea = null;
-
     if (text.trim()) {
-      const x  = parseInt(ta.dataset.cx);
-      const y  = parseInt(ta.dataset.cy);
-      const fStr = [
-        fontItalic ? 'italic' : '',
-        fontBold   ? 'bold'   : '',
-        fontSize + 'px',
-        '"' + fontFamily + '"'
-      ].filter(Boolean).join(' ');
-
-      mc.font         = fStr;
-      mc.fillStyle    = color;
-      mc.textBaseline = 'top';
-
-      const lineH = fontSize * 1.3;
-      text.split('\n').forEach((line, i) => {
-        mc.fillText(line, x, y + i * lineH);
-        if (fontUnder) {
-          const tw = mc.measureText(line).width;
-          const uy = y + i * lineH + fontSize + 2;
-          mc.beginPath();
-          mc.strokeStyle = color;
-          mc.lineWidth   = Math.max(1, fontSize / 14);
-          mc.moveTo(x, uy);
-          mc.lineTo(x + tw, uy);
-          mc.stroke();
-        }
+      objects.push({
+        id: makeId(), type: 'text',
+        x:  parseInt(ta.dataset.cx),
+        y:  parseInt(ta.dataset.cy),
+        text, fontFamily, fontSize, fontBold, fontItalic, fontUnder, color,
       });
+      render();
       saveState();
     }
     if (ta.parentNode) ta.remove();
   }
 
+  // ── Select tool ────────────────────────────────────────────
+  function selectDown(x, y) {
+    commitText();
+    const hit = [...objects].reverse().find(o => hitTest(o, x, y));
+    if (hit) {
+      selectedId  = hit.id;
+      isDragging  = true;
+      dragStartX  = x; dragStartY = y;
+      dragSnap    = JSON.parse(JSON.stringify(hit));
+      didMove     = false;
+    } else {
+      selectedId = null;
+      isDragging = false;
+    }
+    render();
+    renderOverlay();
+    updateSelectUI();
+  }
+
+  function selectMove(x, y) {
+    if (!isDragging || selectedId === null) {
+      const hit = [...objects].reverse().find(o => hitTest(o, x, y));
+      mainCanvas.style.cursor = hit ? 'move' : 'default';
+      return;
+    }
+    const dx  = x - dragStartX;
+    const dy  = y - dragStartY;
+    const obj = objects.find(o => o.id === selectedId);
+    if (!obj) return;
+
+    if (obj.type === 'text') {
+      obj.x = dragSnap.x + dx;
+      obj.y = dragSnap.y + dy;
+    } else {
+      obj.x1 = dragSnap.x1 + dx; obj.y1 = dragSnap.y1 + dy;
+      obj.x2 = dragSnap.x2 + dx; obj.y2 = dragSnap.y2 + dy;
+    }
+    didMove = true;
+    render();
+    renderOverlay();
+  }
+
+  function selectUp() {
+    if (isDragging && didMove) saveState();
+    isDragging = false;
+    dragSnap   = null;
+  }
+
+  function deleteSelected() {
+    if (selectedId === null) return;
+    objects    = objects.filter(o => o.id !== selectedId);
+    selectedId = null;
+    render();
+    renderOverlay();
+    updateSelectUI();
+    saveState();
+  }
+
+  function updateSelectUI() {
+    selectInfoSec.style.display = (selectedId !== null) ? 'block' : 'none';
+  }
+
+  // ── Coordinate helper ──────────────────────────────────────
+  function getPos(e) {
+    const r  = mainCanvas.getBoundingClientRect();
+    const sx = A4_W / r.width;
+    const sy = A4_H / r.height;
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: Math.round((cx - r.left) * sx), y: Math.round((cy - r.top) * sy) };
+  }
+
   // ── Pointer events ─────────────────────────────────────────
+  const SHAPE_TOOLS = new Set(['rect','square','ellipse','line','arrow','triangle']);
+
   mainCanvas.addEventListener('mousedown',  onDown);
   mainCanvas.addEventListener('mousemove',  onMove);
   mainCanvas.addEventListener('mouseup',    onUp);
@@ -383,75 +515,117 @@
 
   function onDown(e) {
     const { x, y } = getPos(e);
-    drawing = true;
-    startX = x; startY = y;
-    lastX  = x; lastY  = y;
 
-    if (tool === 'fill') {
-      floodFill(x, y);
-      saveState();
-      drawing = false;
-      return;
-    }
-    if (tool === 'text') {
-      placeTextInput(x, y);
-      drawing = false;
-      return;
-    }
-    if (tool === 'pen' || tool === 'brush' || tool === 'eraser') {
-      freehandStart(x, y);
-    }
+    if (tool === 'select') { selectDown(x, y); return; }
+    if (tool === 'fill')   { floodFill(x, y); saveState(); return; }
+    if (tool === 'text')   { placeTextInput(x, y); return; }
+
+    drawing = true;
+    startX = x; startY = y; lastX = x; lastY = y;
+
+    if (tool === 'pen' || tool === 'brush' || tool === 'eraser') freehandStart(x, y);
     if (tool === 'spray') {
-      spray(x, y);
-      sprayTimer = setInterval(() => { if (drawing) spray(lastX, lastY); }, 30);
+      doSpray(x, y);
+      sprayTimer = setInterval(() => { if (drawing) doSpray(lastX, lastY); }, 30);
     }
   }
 
   function onMove(e) {
-    if (!drawing) return;
     const { x, y } = getPos(e);
     lastX = x; lastY = y;
 
-    if (tool === 'pen' || tool === 'brush' || tool === 'eraser') {
-      freehandMove(x, y);
-    }
-    if (tool === 'spray') {
-      spray(x, y);
-    }
-    if (SHAPE_TOOLS.has(tool)) {
-      previewShape(startX, startY, x, y);
-    }
+    if (tool === 'select') { selectMove(x, y); return; }
+    if (!drawing) return;
+
+    if (tool === 'pen' || tool === 'brush' || tool === 'eraser') freehandMove(x, y);
+    if (tool === 'spray') doSpray(x, y);
+    if (SHAPE_TOOLS.has(tool)) previewShape(startX, startY, x, y);
   }
 
   function onUp(e) {
-    if (!drawing) return;
     const { x, y } = getPos(e);
+
+    if (tool === 'select') { selectUp(); return; }
+    if (!drawing) return;
     drawing = false;
 
     if (tool === 'spray') {
-      clearInterval(sprayTimer); sprayTimer = null;
-      saveState(); return;
+      clearInterval(sprayTimer); sprayTimer = null; saveState(); return;
     }
     if (tool === 'pen' || tool === 'brush' || tool === 'eraser') {
       freehandEnd(); saveState(); return;
     }
     if (SHAPE_TOOLS.has(tool)) {
-      commitShape(startX, startY, x, y);
+      oc.clearRect(0, 0, A4_W, A4_H);
+      objects.push({
+        id: makeId(), type: tool,
+        x1: startX, y1: startY, x2: x, y2: y,
+        color, size: brushSize, style: shapeStyle,
+      });
+      render();
       saveState();
     }
   }
 
   function onLeave(e) {
-    if (drawing) onUp(e);
+    if (drawing)                      onUp(e);
+    else if (tool === 'select' && isDragging) selectUp();
   }
 
   // ── Keyboard shortcuts ─────────────────────────────────────
   document.addEventListener('keydown', e => {
     const tag = document.activeElement.tagName;
     if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undo(); }
     if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); redo(); }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId !== null) { e.preventDefault(); deleteSelected(); }
+    if (e.key === 'v' || e.key === 'V') selectToolActivate();
+    if (e.key === 'Escape') { selectedId = null; renderOverlay(); updateSelectUI(); }
   });
+
+  function selectToolActivate() {
+    selectTool('select');
+  }
+
+  // ── Tool selection ─────────────────────────────────────────
+  function selectTool(t) {
+    commitText();
+    if (t !== 'select') {
+      selectedId = null;
+      renderOverlay();
+      updateSelectUI();
+    }
+    tool = t;
+    document.querySelectorAll('.tool-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.tool === t));
+    shapeFillSec.style.display = SHAPE_TOOLS.has(t) ? 'block'    : 'none';
+    textOptSec.style.display   = t === 'text'        ? 'block'    : 'none';
+    mainCanvas.style.cursor    = t === 'text'         ? 'text'
+                               : t === 'select'       ? 'default'
+                               :                        'crosshair';
+  }
+
+  // ── Color palette ──────────────────────────────────────────
+  function buildPalette() {
+    PALETTE.forEach(c => {
+      const btn = document.createElement('button');
+      btn.className    = 'color-swatch';
+      btn.style.background = c;
+      btn.dataset.color    = c;
+      btn.title            = c;
+      btn.addEventListener('click', () => setColor(c));
+      swatchesEl.appendChild(btn);
+    });
+  }
+
+  function setColor(c) {
+    color = c;
+    colorBox.style.background = c;
+    if (/^#[0-9a-f]{6}$/i.test(c)) colorPicker.value = c;
+    document.querySelectorAll('.color-swatch').forEach(sw =>
+      sw.classList.toggle('selected', sw.dataset.color === c));
+  }
 
   // ── UI wiring ──────────────────────────────────────────────
   document.querySelectorAll('.tool-btn').forEach(btn =>
@@ -475,29 +649,34 @@
   fontSizeInput.addEventListener('change', () => { fontSize   = Math.max(8, parseInt(fontSizeInput.value) || 20); });
 
   boldBtn.addEventListener('click', () => {
-    fontBold = !fontBold;
-    boldBtn.classList.toggle('active', fontBold);
+    fontBold = !fontBold; boldBtn.classList.toggle('active', fontBold);
   });
   italicBtn.addEventListener('click', () => {
-    fontItalic = !fontItalic;
-    italicBtn.classList.toggle('active', fontItalic);
+    fontItalic = !fontItalic; italicBtn.classList.toggle('active', fontItalic);
   });
   underlineBtn.addEventListener('click', () => {
-    fontUnder = !fontUnder;
-    underlineBtn.classList.toggle('active', fontUnder);
+    fontUnder = !fontUnder; underlineBtn.classList.toggle('active', fontUnder);
   });
 
+  deleteSelBtn.addEventListener('click', deleteSelected);
   undoBtn.addEventListener('click', undo);
   redoBtn.addEventListener('click', redo);
 
   clearBtn.addEventListener('click', () => {
     if (!confirm('Clear the canvas? This cannot be undone.')) return;
-    mc.fillStyle = '#ffffff';
-    mc.fillRect(0, 0, A4_W, A4_H);
+    pc.fillStyle = '#ffffff';
+    pc.fillRect(0, 0, A4_W, A4_H);
+    objects    = [];
+    selectedId = null;
+    render();
+    renderOverlay();
+    updateSelectUI();
     saveState();
   });
 
   exportPng.addEventListener('click', () => {
+    commitText();
+    render();
     const a = document.createElement('a');
     a.download = 'pprblank.png';
     a.href = mainCanvas.toDataURL('image/png');
@@ -505,6 +684,8 @@
   });
 
   exportJpg.addEventListener('click', () => {
+    commitText();
+    render();
     const tmp = document.createElement('canvas');
     tmp.width = A4_W; tmp.height = A4_H;
     const t = tmp.getContext('2d');
@@ -518,8 +699,15 @@
   });
 
   // ── Init ───────────────────────────────────────────────────
+  mainCanvas.width     = A4_W;
+  mainCanvas.height    = A4_H;
+  overlayCanvas.width  = A4_W;
+  overlayCanvas.height = A4_H;
+
   buildPalette();
   setColor('#000000');
   selectTool('pen');
+  render();
+  saveState();
 
 })();
