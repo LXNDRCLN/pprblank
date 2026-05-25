@@ -231,7 +231,8 @@
     ctx.fillStyle    = obj.color;
     ctx.textBaseline = 'top';
     const lineH = obj.fontSize * 1.3;
-    const lines = wrapText(ctx, obj.text, obj.boxWidth || 0);
+    const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
+    const lines = wrapText(ctx, obj.text, wrapW);
     lines.forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + i * lineH);
       if (obj.fontUnder) {
@@ -252,7 +253,8 @@
     if (obj.type === 'text') {
       mc.save();
       mc.font = buildFont(obj);
-      const lines = wrapText(mc, obj.text, obj.boxWidth || 0);
+      const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
+      const lines = wrapText(mc, obj.text, wrapW);
       let maxW = obj.boxWidth || 20;
       if (!obj.boxWidth) lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
       mc.restore();
@@ -445,11 +447,6 @@
         document.removeEventListener('pointerdown', onOutsidePointerDown, true);
         ta.remove();
         activeTextarea = null;
-      }
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        document.removeEventListener('pointerdown', onOutsidePointerDown, true);
-        commitText();
       }
     });
   }
