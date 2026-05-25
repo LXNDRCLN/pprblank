@@ -664,16 +664,18 @@
     const sy = A4_H / r.height;
     const cx = e.touches ? e.touches[0].clientX : e.clientX;
     const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    return { x: Math.round((cx - r.left) * sx), y: Math.round((cy - r.top) * sy) };
+    return {
+      x: Math.max(0, Math.min(A4_W, Math.round((cx - r.left) * sx))),
+      y: Math.max(0, Math.min(A4_H, Math.round((cy - r.top)  * sy))),
+    };
   }
 
   // ── Pointer events ─────────────────────────────────────────
   const SHAPE_TOOLS = new Set(['rect','square','ellipse','line','arrow','triangle']);
 
-  mainCanvas.addEventListener('mousedown',  onDown);
-  mainCanvas.addEventListener('mousemove',  onMove);
-  mainCanvas.addEventListener('mouseup',    onUp);
-  mainCanvas.addEventListener('mouseleave', onLeave);
+  mainCanvas.addEventListener('mousedown',   onDown);
+  document.addEventListener('mousemove',    onMove);
+  document.addEventListener('mouseup',      onUp);
   mainCanvas.addEventListener('contextmenu', e => e.preventDefault());
   mainCanvas.addEventListener('dblclick', e => {
     if (tool !== 'select') return;
@@ -700,6 +702,12 @@
   }
 
   function onMove(e) {
+    // Mouse button released outside the browser window — stop current action
+    if (e.buttons === 0) {
+      if (drawing) { onUp(e); return; }
+      if (isDragging) { selectUp(); return; }
+    }
+
     const { x, y } = getPos(e);
     lastX = x; lastY = y;
 
@@ -756,11 +764,6 @@
       render();
       saveState();
     }
-  }
-
-  function onLeave(e) {
-    if (drawing)                      onUp(e);
-    else if (tool === 'select' && isDragging) selectUp();
   }
 
   // ── Keyboard shortcuts ─────────────────────────────────────
