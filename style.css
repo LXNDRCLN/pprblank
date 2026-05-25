@@ -394,6 +394,6 @@ body {
   min-width: 80px;
   min-height: 32px;
   z-index: 10;
-  overflow: hidden;
+  overflow: visible;
   line-height: 1.25;
 }

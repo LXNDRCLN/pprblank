@@ -400,7 +400,22 @@
     ta.dataset.cy = y;
     canvasWrapper.appendChild(ta);
     activeTextarea = ta;
-    ta.focus();
+
+    // Defer focus to the next frame so the triggering mousedown/mouseup
+    // sequence fully completes before we steal focus — prevents the browser
+    // from immediately blurring the textarea back to the canvas.
+    requestAnimationFrame(() => { if (activeTextarea === ta) ta.focus(); });
+
+    // Detect clicks outside the textarea using capture-phase pointerdown,
+    // registered after the current event cycle to ignore the triggering click.
+    function onOutsidePointerDown(e) {
+      if (e.target === ta) return;
+      document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+      commitText();
+    }
+    requestAnimationFrame(() => {
+      document.addEventListener('pointerdown', onOutsidePointerDown, true);
+    });
 
     ta.addEventListener('input', () => {
       ta.style.height = 'auto';
@@ -408,9 +423,18 @@
       ta.style.width  = 'auto';
       ta.style.width  = Math.max(80, ta.scrollWidth) + 'px';
     });
-    ta.addEventListener('blur',    () => commitText());
     ta.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { ta.remove(); activeTextarea = null; }
+      if (e.key === 'Escape') {
+        document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+        ta.remove();
+        activeTextarea = null;
+      }
+      // Enter commits; Shift+Enter inserts a newline
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+        commitText();
+      }
     });
   }
 
