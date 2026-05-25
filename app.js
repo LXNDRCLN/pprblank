@@ -224,15 +224,21 @@
     return out;
   }
 
+  function computeLines(ff, fs, fb, fi, text, bw) {
+    const tmp = document.createElement('canvas').getContext('2d');
+    tmp.font = [fi ? 'italic' : '', fb ? 'bold' : '', fs + 'px', '"' + ff + '"'].filter(Boolean).join(' ');
+    return wrapText(tmp, text, bw ? bw - 8 : 0);
+  }
+
   function drawTextObj(ctx, obj) {
-    if (!obj.text) return;
+    if (!obj.text || obj._editing) return;
     ctx.save();
     ctx.font         = buildFont(obj);
     ctx.fillStyle    = obj.color;
     ctx.textBaseline = 'top';
     const lineH = obj.fontSize * 1.3;
     const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
-    const lines = wrapText(ctx, obj.text, wrapW);
+    const lines = obj.lines || wrapText(ctx, obj.text, wrapW);
     lines.forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + i * lineH);
       if (obj.fontUnder) {
@@ -254,7 +260,7 @@
       mc.save();
       mc.font = buildFont(obj);
       const wrapW = obj.boxWidth ? obj.boxWidth - 8 : 0;
-      const lines = wrapText(mc, obj.text, wrapW);
+      const lines = obj.lines || wrapText(mc, obj.text, wrapW);
       let maxW = obj.boxWidth || 20;
       if (!obj.boxWidth) lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
       mc.restore();
@@ -453,21 +459,124 @@
 
   function commitText() {
     if (!activeTextarea) return;
-    const ta   = activeTextarea;
-    const text = ta.value;
+    const ta     = activeTextarea;
+    const text   = ta.value;
     activeTextarea = null;
-    if (text.trim()) {
-      objects.push({
-        id: makeId(), type: 'text',
-        x:        parseInt(ta.dataset.cx),
-        y:        parseInt(ta.dataset.cy),
-        boxWidth: parseInt(ta.dataset.bw) || 0,
-        text, fontFamily, fontSize, fontBold, fontItalic, fontUnder, color,
-      });
+    const bw     = parseInt(ta.dataset.bw) || 0;
+    const editId = ta.dataset.editId ? parseInt(ta.dataset.editId) : null;
+
+    if (editId !== null) {
+      const obj = objects.find(o => o.id === editId);
+      if (obj) {
+        obj._editing = false;
+        if (text.trim()) {
+          obj.text      = text;
+          obj.boxWidth  = bw;
+          obj.fontFamily = fontFamily;
+          obj.fontSize   = fontSize;
+          obj.fontBold   = fontBold;
+          obj.fontItalic = fontItalic;
+          obj.fontUnder  = fontUnder;
+          obj.color      = color;
+          obj.lines      = computeLines(fontFamily, fontSize, fontBold, fontItalic, text, bw);
+        } else {
+          objects = objects.filter(o => o.id !== editId);
+        }
+      }
       render();
       saveState();
+    } else {
+      if (text.trim()) {
+        const lines = computeLines(fontFamily, fontSize, fontBold, fontItalic, text, bw);
+        objects.push({
+          id: makeId(), type: 'text',
+          x: parseInt(ta.dataset.cx),
+          y: parseInt(ta.dataset.cy),
+          boxWidth: bw, text, lines,
+          fontFamily, fontSize, fontBold, fontItalic, fontUnder, color,
+        });
+        render();
+        saveState();
+      }
     }
     if (ta.parentNode) ta.remove();
+  }
+
+  function editTextObject(obj) {
+    commitText();
+    fontFamily = obj.fontFamily; fontSize = obj.fontSize;
+    fontBold   = obj.fontBold;   fontItalic = obj.fontItalic;
+    fontUnder  = obj.fontUnder;  color = obj.color;
+    fontFamilySel.value = fontFamily;
+    fontSizeInput.value = fontSize;
+    boldBtn.classList.toggle('active', fontBold);
+    italicBtn.classList.toggle('active', fontItalic);
+    underlineBtn.classList.toggle('active', fontUnder);
+    setColor(color);
+    textOptSec.style.display = 'block';
+
+    selectedId = null;
+    renderOverlay();
+    updateSelectUI();
+
+    const r   = mainCanvas.getBoundingClientRect();
+    const scX = r.width  / A4_W;
+    const scY = r.height / A4_H;
+    const bw  = obj.boxWidth || Math.max(getBounds(obj).w + 8, 100);
+    const bh  = Math.max(getBounds(obj).h + 8, 32);
+
+    const ta = document.createElement('textarea');
+    ta.className            = 'text-input-overlay';
+    ta.style.left           = (obj.x * scX) + 'px';
+    ta.style.top            = (obj.y * scY) + 'px';
+    ta.style.width          = (bw * scX) + 'px';
+    ta.style.height         = (bh * scY) + 'px';
+    ta.style.fontFamily     = obj.fontFamily;
+    ta.style.fontSize       = (obj.fontSize * scY) + 'px';
+    ta.style.fontWeight     = obj.fontBold   ? 'bold'      : 'normal';
+    ta.style.fontStyle      = obj.fontItalic ? 'italic'    : 'normal';
+    ta.style.textDecoration = obj.fontUnder  ? 'underline' : 'none';
+    ta.style.color          = obj.color;
+    ta.value                = obj.text;
+    ta.dataset.cx           = obj.x;
+    ta.dataset.cy           = obj.y;
+    ta.dataset.bw           = bw;
+    ta.dataset.editId       = obj.id;
+
+    obj._editing = true;
+    render();
+    canvasWrapper.appendChild(ta);
+    activeTextarea = ta;
+
+    requestAnimationFrame(() => {
+      if (activeTextarea === ta) {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }
+    });
+
+    function onOutsidePointerDown(e) {
+      if (e.target === ta) return;
+      document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+      commitText();
+    }
+    requestAnimationFrame(() => {
+      document.addEventListener('pointerdown', onOutsidePointerDown, true);
+    });
+
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+    });
+    ta.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.removeEventListener('pointerdown', onOutsidePointerDown, true);
+        obj._editing = false;
+        render();
+        ta.remove();
+        activeTextarea = null;
+      }
+    });
   }
 
   // ── Select tool ────────────────────────────────────────────
@@ -550,6 +659,12 @@
   mainCanvas.addEventListener('mouseup',    onUp);
   mainCanvas.addEventListener('mouseleave', onLeave);
   mainCanvas.addEventListener('contextmenu', e => e.preventDefault());
+  mainCanvas.addEventListener('dblclick', e => {
+    if (tool !== 'select') return;
+    const { x, y } = getPos(e);
+    const hit = [...objects].reverse().find(o => o.type === 'text' && hitTest(o, x, y));
+    if (hit) editTextObject(hit);
+  });
 
   function onDown(e) {
     const { x, y } = getPos(e);
