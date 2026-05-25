@@ -204,6 +204,26 @@
     ].filter(Boolean).join(' ');
   }
 
+  function wrapText(ctx, text, maxWidth) {
+    const out = [];
+    text.split('\n').forEach(para => {
+      if (!maxWidth) { out.push(para); return; }
+      const words = para.split(' ');
+      let cur = '';
+      words.forEach(w => {
+        const test = cur ? cur + ' ' + w : w;
+        if (ctx.measureText(test).width > maxWidth && cur) {
+          out.push(cur);
+          cur = w;
+        } else {
+          cur = test;
+        }
+      });
+      out.push(cur);
+    });
+    return out;
+  }
+
   function drawTextObj(ctx, obj) {
     if (!obj.text) return;
     ctx.save();
@@ -211,7 +231,8 @@
     ctx.fillStyle    = obj.color;
     ctx.textBaseline = 'top';
     const lineH = obj.fontSize * 1.3;
-    obj.text.split('\n').forEach((line, i) => {
+    const lines = wrapText(ctx, obj.text, obj.boxWidth || 0);
+    lines.forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + i * lineH);
       if (obj.fontUnder) {
         const tw = ctx.measureText(line).width;
@@ -231,9 +252,9 @@
     if (obj.type === 'text') {
       mc.save();
       mc.font = buildFont(obj);
-      const lines = obj.text.split('\n');
-      let maxW = 20;
-      lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
+      const lines = wrapText(mc, obj.text, obj.boxWidth || 0);
+      let maxW = obj.boxWidth || 20;
+      if (!obj.boxWidth) lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
       mc.restore();
       return { x: obj.x, y: obj.y, w: maxW, h: lines.length * obj.fontSize * 1.3 };
     }
@@ -381,16 +402,18 @@
   }
 
   // ── Text tool ──────────────────────────────────────────────
-  function placeTextInput(x, y) {
+  function placeTextInput(x, y, boxW, boxH) {
     commitText();
     const r   = mainCanvas.getBoundingClientRect();
     const scX = r.width  / A4_W;
     const scY = r.height / A4_H;
 
     const ta = document.createElement('textarea');
-    ta.className = 'text-input-overlay';
+    ta.className        = 'text-input-overlay';
     ta.style.left       = (x * scX) + 'px';
     ta.style.top        = (y * scY) + 'px';
+    ta.style.width      = (boxW * scX) + 'px';
+    ta.style.height     = (boxH * scY) + 'px';
     ta.style.fontFamily = fontFamily;
     ta.style.fontSize   = (fontSize * scY) + 'px';
     ta.style.fontWeight = fontBold   ? 'bold'   : 'normal';
@@ -398,16 +421,12 @@
     ta.style.color      = color;
     ta.dataset.cx = x;
     ta.dataset.cy = y;
+    ta.dataset.bw = boxW;
     canvasWrapper.appendChild(ta);
     activeTextarea = ta;
 
-    // Defer focus to the next frame so the triggering mousedown/mouseup
-    // sequence fully completes before we steal focus — prevents the browser
-    // from immediately blurring the textarea back to the canvas.
     requestAnimationFrame(() => { if (activeTextarea === ta) ta.focus(); });
 
-    // Detect clicks outside the textarea using capture-phase pointerdown,
-    // registered after the current event cycle to ignore the triggering click.
     function onOutsidePointerDown(e) {
       if (e.target === ta) return;
       document.removeEventListener('pointerdown', onOutsidePointerDown, true);
@@ -420,8 +439,6 @@
     ta.addEventListener('input', () => {
       ta.style.height = 'auto';
       ta.style.height = ta.scrollHeight + 'px';
-      ta.style.width  = 'auto';
-      ta.style.width  = Math.max(80, ta.scrollWidth) + 'px';
     });
     ta.addEventListener('keydown', e => {
       if (e.key === 'Escape') {
@@ -429,7 +446,6 @@
         ta.remove();
         activeTextarea = null;
       }
-      // Enter commits; Shift+Enter inserts a newline
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         document.removeEventListener('pointerdown', onOutsidePointerDown, true);
@@ -446,8 +462,9 @@
     if (text.trim()) {
       objects.push({
         id: makeId(), type: 'text',
-        x:  parseInt(ta.dataset.cx),
-        y:  parseInt(ta.dataset.cy),
+        x:        parseInt(ta.dataset.cx),
+        y:        parseInt(ta.dataset.cy),
+        boxWidth: parseInt(ta.dataset.bw) || 0,
         text, fontFamily, fontSize, fontBold, fontItalic, fontUnder, color,
       });
       render();
@@ -542,7 +559,7 @@
 
     if (tool === 'select') { selectDown(x, y); return; }
     if (tool === 'fill')   { floodFill(x, y); saveState(); return; }
-    if (tool === 'text')   { placeTextInput(x, y); return; }
+    if (tool === 'text')   { commitText(); drawing = true; startX = x; startY = y; return; }
 
     drawing = true;
     startX = x; startY = y; lastX = x; lastY = y;
@@ -561,6 +578,18 @@
     if (tool === 'select') { selectMove(x, y); return; }
     if (!drawing) return;
 
+    if (tool === 'text') {
+      oc.clearRect(0, 0, A4_W, A4_H);
+      oc.save();
+      oc.strokeStyle = '#3a78d4';
+      oc.lineWidth   = 1.5;
+      oc.setLineDash([5, 3]);
+      oc.strokeRect(startX, startY, x - startX, y - startY);
+      oc.setLineDash([]);
+      oc.restore();
+      return;
+    }
+
     if (tool === 'pen' || tool === 'brush' || tool === 'eraser') freehandMove(x, y);
     if (tool === 'spray') doSpray(x, y);
     if (SHAPE_TOOLS.has(tool)) previewShape(startX, startY, x, y);
@@ -572,6 +601,16 @@
     if (tool === 'select') { selectUp(); return; }
     if (!drawing) return;
     drawing = false;
+
+    if (tool === 'text') {
+      oc.clearRect(0, 0, A4_W, A4_H);
+      const bw = Math.abs(x - startX);
+      const bh = Math.abs(y - startY);
+      const bx = Math.min(startX, x);
+      const by = Math.min(startY, y);
+      placeTextInput(bx, by, Math.max(bw, 80), Math.max(bh, 32));
+      return;
+    }
 
     if (tool === 'spray') {
       clearInterval(sprayTimer); sprayTimer = null; saveState(); return;
@@ -625,9 +664,7 @@
       b.classList.toggle('active', b.dataset.tool === t));
     shapeFillSec.style.display = SHAPE_TOOLS.has(t) ? 'block'    : 'none';
     textOptSec.style.display   = t === 'text'        ? 'block'    : 'none';
-    mainCanvas.style.cursor    = t === 'text'         ? 'text'
-                               : t === 'select'       ? 'default'
-                               :                        'crosshair';
+    mainCanvas.style.cursor    = t === 'select' ? 'default' : 'crosshair';
   }
 
   // ── Color palette ──────────────────────────────────────────

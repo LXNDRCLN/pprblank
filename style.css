@@ -391,9 +391,10 @@ body {
   outline: none;
   resize: none;
   padding: 2px 4px;
-  min-width: 80px;
-  min-height: 32px;
   z-index: 10;
-  overflow: visible;
+  overflow: hidden;
   line-height: 1.25;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  box-sizing: border-box;
 }
