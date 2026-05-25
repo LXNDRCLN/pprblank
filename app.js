@@ -317,9 +317,28 @@
   }
 
   // ── Freehand (pen / brush / eraser) ───────────────────────
+  function eraseObjectsAt(x, y) {
+    const r      = brushSize * 2;
+    const before = objects.length;
+    objects = objects.filter(obj => {
+      const b  = getBounds(obj);
+      const nx = Math.max(b.x, Math.min(x, b.x + b.w));
+      const ny = Math.max(b.y, Math.min(y, b.y + b.h));
+      return Math.hypot(x - nx, y - ny) > r;
+    });
+    if (objects.length < before) {
+      if (selectedId !== null && !objects.find(o => o.id === selectedId)) {
+        selectedId = null;
+        renderOverlay();
+        updateSelectUI();
+      }
+    }
+  }
+
   function freehandStart(x, y) {
     pc.beginPath();
     pc.moveTo(x, y);
+    if (tool === 'eraser') eraseObjectsAt(x, y);
   }
 
   function freehandMove(x, y) {
@@ -327,6 +346,7 @@
       pc.strokeStyle = '#ffffff';
       pc.lineWidth   = brushSize * 4;
       pc.globalAlpha = 1;
+      eraseObjectsAt(x, y);
     } else if (tool === 'brush') {
       pc.strokeStyle = color;
       pc.lineWidth   = brushSize * 2.5;
