@@ -815,6 +815,16 @@
     });
   }
 
+  // ── Impressum modal ────────────────────────────────────────
+  const impressumBtn   = document.getElementById('impressum-btn');
+  const impressumModal = document.getElementById('impressum-modal');
+  const impressumClose = document.getElementById('impressum-close');
+  if (impressumBtn) {
+    impressumBtn.addEventListener('click', () => impressumModal.classList.add('open'));
+    impressumClose.addEventListener('click', () => impressumModal.classList.remove('open'));
+    impressumModal.addEventListener('click', e => { if (e.target === impressumModal) impressumModal.classList.remove('open'); });
+  }
+
   // ── Init ───────────────────────────────────────────────────
   buildPalette();
   setColor('#000000');

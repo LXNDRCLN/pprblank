@@ -470,3 +470,78 @@ body {
   white-space: pre-wrap;
   box-sizing: border-box;
 }
+
+/* ── Impressum ── */
+#impressum-btn {
+  position: fixed;
+  bottom: 10px;
+  right: 14px;
+  font-size: 11px;
+  color: #aaa;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  z-index: 50;
+  text-decoration: underline;
+  font-family: inherit;
+}
+#impressum-btn:hover { color: #555; }
+
+.impressum-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 300;
+  align-items: center;
+  justify-content: center;
+}
+.impressum-overlay.open { display: flex; }
+
+.impressum-box {
+  background: #fff;
+  border-radius: 10px;
+  padding: 32px 36px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+}
+
+.impressum-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 22px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: #aaa;
+  line-height: 1;
+  font-family: inherit;
+}
+.impressum-close:hover { color: #333; }
+
+.impressum-box h2 {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 18px;
+  color: #222;
+}
+.impressum-box h3 {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #9aa0ab;
+  margin: 18px 0 6px;
+}
+.impressum-box p {
+  font-size: 13px;
+  color: #444;
+  line-height: 1.7;
+}
+.impressum-box a { color: #3a78d4; }
