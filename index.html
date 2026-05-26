@@ -64,6 +64,12 @@
           <button class="tool-btn" data-tool="triangle" title="Triangle">
             <svg viewBox="0 0 24 24"><polygon points="12,3 22,21 2,21" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           </button>
+          <button class="tool-btn" data-tool="hexagon" title="Hexagon">
+            <svg viewBox="0 0 24 24"><polygon points="20,12 16,7 8,7 4,12 8,17 16,17" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="tool-btn" data-tool="parallelogram" title="Parallelogram">
+            <svg viewBox="0 0 24 24"><polygon points="7,5 21,5 17,19 3,19" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          </button>
         </div>
       </div>
 
@@ -145,12 +151,17 @@
     <main id="canvas-area">
       <div id="top-bar">
         <div class="bar-group">
+          <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Menu">&#9776;</button>
           <button id="undo-btn" title="Undo (Ctrl+Z)">&#8617; Undo</button>
           <button id="redo-btn" title="Redo (Ctrl+Y)">&#8618; Redo</button>
           <button id="clear-btn" title="Clear canvas">&#10005; Clear</button>
         </div>
         <div class="bar-brand">Can you draw it for me please?</div>
         <div class="bar-group">
+          <div class="zoom-control">
+            <span id="zoom-display">100%</span>
+            <input type="range" id="zoom-slider" min="1" max="100" value="53" title="Zoom">
+          </div>
           <button id="export-png">&#8595; PNG</button>
           <button id="export-jpg">&#8595; JPG</button>
         </div>
