@@ -301,6 +301,9 @@
   }
 
   // ── Freehand ──────────────────────────────────────────────
+  let strokePoints   = [];
+  let strokeSnapshot = null;
+
   function eraseObjectsAt(x, y) {
     const r = brushSize * 2, before = objects.length;
     objects = objects.filter(obj => {
@@ -314,12 +317,30 @@
     }
   }
 
+  function drawSmoothStroke(points) {
+    if (points.length === 0) return;
+    pc.beginPath();
+    pc.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length - 1; i++) {
+      const mx = (points[i].x + points[i+1].x) / 2;
+      const my = (points[i].y + points[i+1].y) / 2;
+      pc.quadraticCurveTo(points[i].x, points[i].y, mx, my);
+    }
+    if (points.length > 1) {
+      const last = points[points.length - 1];
+      pc.lineTo(last.x, last.y);
+    }
+    pc.stroke();
+  }
+
   function freehandStart(x, y) {
-    pc.beginPath(); pc.moveTo(x, y);
+    strokePoints = [{x, y}];
+    strokeSnapshot = pc.getImageData(0, 0, A4_W, A4_H);
     if (tool === 'eraser') eraseObjectsAt(x, y);
   }
 
   function freehandMove(x, y) {
+    strokePoints.push({x, y});
     if (tool === 'eraser') {
       pc.strokeStyle = '#ffffff'; pc.lineWidth = brushSize*4; pc.globalAlpha = 1;
       eraseObjectsAt(x, y);
@@ -329,11 +350,16 @@
       pc.strokeStyle = color; pc.lineWidth = brushSize; pc.globalAlpha = 1;
     }
     pc.lineCap = 'round'; pc.lineJoin = 'round';
-    pc.lineTo(x, y); pc.stroke(); pc.beginPath(); pc.moveTo(x, y);
+    pc.putImageData(strokeSnapshot, 0, 0);
+    drawSmoothStroke(strokePoints);
     render();
   }
 
-  function freehandEnd() { pc.globalAlpha = 1; }
+  function freehandEnd() {
+    strokePoints = [];
+    strokeSnapshot = null;
+    pc.globalAlpha = 1;
+  }
 
   function doSpray(x, y) {
     const density = 25+brushSize*2, radius = brushSize*4;
@@ -815,14 +841,20 @@
     });
   }
 
-  // ── Impressum modal ────────────────────────────────────────
+  // ── Impressum popup ────────────────────────────────────────
   const impressumBtn   = document.getElementById('impressum-btn');
-  const impressumModal = document.getElementById('impressum-modal');
-  const impressumClose = document.getElementById('impressum-close');
+  const impressumPopup = document.getElementById('impressum-popup');
   if (impressumBtn) {
-    impressumBtn.addEventListener('click', () => impressumModal.classList.add('open'));
-    impressumClose.addEventListener('click', () => impressumModal.classList.remove('open'));
-    impressumModal.addEventListener('click', e => { if (e.target === impressumModal) impressumModal.classList.remove('open'); });
+    impressumBtn.addEventListener('click', e => { e.stopPropagation(); impressumPopup.classList.toggle('open'); });
+    document.addEventListener('click', e => { if (!impressumPopup.contains(e.target)) impressumPopup.classList.remove('open'); });
+  }
+
+  // ── About popup ────────────────────────────────────────────
+  const aboutBtn   = document.getElementById('about-btn');
+  const aboutPopup = document.getElementById('about-popup');
+  if (aboutBtn) {
+    aboutBtn.addEventListener('click', e => { e.stopPropagation(); aboutPopup.classList.toggle('open'); });
+    document.addEventListener('click', e => { if (!aboutPopup.contains(e.target)) aboutPopup.classList.remove('open'); });
   }
 
   // ── Init ───────────────────────────────────────────────────

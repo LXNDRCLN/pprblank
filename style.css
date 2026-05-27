@@ -471,78 +471,108 @@ body {
   box-sizing: border-box;
 }
 
-/* ── Impressum ── */
-#impressum-btn {
+/* ── Footer buttons ── */
+#footer-btns {
   position: fixed;
   bottom: 10px;
   right: 14px;
-  font-size: 11px;
-  color: #666;
-  background: rgba(255,255,255,0.85);
-  border: 1px solid #d0d4da;
-  border-radius: 5px;
-  cursor: pointer;
-  padding: 4px 9px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
   z-index: 50;
-  font-family: inherit;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.08);
 }
-#impressum-btn:hover { background: #fff; color: #3a78d4; border-color: #5591e0; }
 
-.impressum-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.45);
-  z-index: 300;
-  align-items: center;
-  justify-content: center;
-}
-.impressum-overlay.open { display: flex; }
-
-.impressum-box {
-  background: #fff;
-  border-radius: 10px;
-  padding: 32px 36px;
-  max-width: 500px;
-  width: 90%;
-  max-height: 80vh;
-  overflow-y: auto;
+.footer-btn-wrapper {
   position: relative;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
 }
 
-.impressum-close {
-  position: absolute;
-  top: 12px;
-  right: 16px;
-  font-size: 22px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: #aaa;
-  line-height: 1;
-  font-family: inherit;
-}
-.impressum-close:hover { color: #333; }
-
-.impressum-box h2 {
-  font-size: 18px;
-  font-weight: 700;
-  margin-bottom: 18px;
-  color: #222;
-}
-.impressum-box h3 {
+.footer-3d-btn {
   font-size: 11px;
+  color: #555;
+  background: linear-gradient(to bottom, #f9fafc, #eaecf1);
+  border: 1px solid #c4c9d4;
+  border-bottom: 3px solid #9ba3b2;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 5px 12px;
+  font-family: inherit;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  transition: transform 0.08s, box-shadow 0.08s, border-bottom-width 0.08s;
+  user-select: none;
+}
+
+.footer-3d-btn:hover {
+  background: linear-gradient(to bottom, #fff, #f0f3f9);
+  color: #3a78d4;
+  border-color: #5591e0;
+  border-bottom-color: #2255a0;
+}
+
+.footer-3d-btn:active {
+  transform: translateY(2px);
+  border-bottom-width: 1px;
+  box-shadow: 0 0 2px rgba(0,0,0,0.08);
+}
+
+/* ── About popup ── */
+.about-popup {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  background: #fff;
+  border: 1px solid #d0d4da;
+  border-radius: 10px;
+  padding: 14px 16px;
+  width: 280px;
+  max-height: 60vh;
+  overflow-y: auto;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.14);
+  font-size: 12px;
+  color: #444;
+  line-height: 1.6;
+  z-index: 200;
+}
+
+.about-popup::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  right: 18px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-right: 1px solid #d0d4da;
+  border-bottom: 1px solid #d0d4da;
+  transform: rotate(45deg);
+}
+
+.about-popup.open { display: block; }
+
+.about-popup strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #222;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.about-popup p { margin: 0 0 8px; }
+
+.about-popup hr {
+  border: none;
+  border-top: 1px solid #eee;
+  margin: 10px 0;
+}
+
+.about-popup a { color: #3a78d4; text-decoration: none; }
+.about-popup a:hover { text-decoration: underline; }
+
+.about-popup h3 {
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
   color: #9aa0ab;
-  margin: 18px 0 6px;
+  margin: 12px 0 4px;
 }
-.impressum-box p {
-  font-size: 13px;
-  color: #444;
-  line-height: 1.7;
-}
-.impressum-box a { color: #3a78d4; }
