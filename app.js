@@ -39,6 +39,8 @@
   const zoomDisplay   = document.getElementById('zoom-display');
   const sidebarToggle = document.getElementById('sidebar-toggle');
   const sidebar       = document.getElementById('sidebar');
+  const sidebarHandle = document.getElementById('sidebar-handle');
+  const canvasScroll  = document.getElementById('canvas-scroll');
 
   const pixelCanvas = document.createElement('canvas');
   pixelCanvas.width  = A4_W;
@@ -217,7 +219,8 @@
     ctx.save();
     ctx.font = buildFont(obj); ctx.fillStyle = obj.color; ctx.textBaseline = 'top';
     const lineH = obj.fontSize * 1.3;
-    obj.text.split('\n').forEach((line, i) => {
+    const lines = obj.boxWidth ? wrapText(ctx, obj.text, obj.boxWidth - 8) : obj.text.split('\n');
+    lines.forEach((line, i) => {
       ctx.fillText(line, obj.x, obj.y + i*lineH);
       if (obj.fontUnder) {
         const tw = ctx.measureText(line).width, uy = obj.y + i*lineH + obj.fontSize + 2;
@@ -233,7 +236,7 @@
   function getBounds(obj) {
     if (obj.type === 'text') {
       mc.save(); mc.font = buildFont(obj);
-      const lines = obj.text ? obj.text.split('\n') : [''];
+      const lines = obj.boxWidth ? wrapText(mc, obj.text || '', obj.boxWidth - 8) : (obj.text ? obj.text.split('\n') : ['']);
       let maxW = obj.boxWidth || 20;
       if (!obj.boxWidth) lines.forEach(l => { const w = mc.measureText(l).width; if (w > maxW) maxW = w; });
       mc.restore();
@@ -474,14 +477,6 @@
     });
   }
 
-  function bakeText(rawText, ff, fs, fb, fi, bw) {
-    if (!bw) return rawText;
-    mc.save();
-    mc.font = [fi?'italic':'', fb?'bold':'', fs+'px', '"'+ff+'"'].filter(Boolean).join(' ');
-    const lines = wrapText(mc, rawText, bw-8);
-    mc.restore(); return lines.join('\n');
-  }
-
   function commitText() {
     if (!activeTextarea) return;
     const ta = activeTextarea, raw = ta.value;
@@ -493,7 +488,7 @@
       if (obj) {
         obj._editing = false;
         if (raw.trim()) {
-          obj.text = bakeText(raw, fontFamily, fontSize, fontBold, fontItalic, bw);
+          obj.text = raw;
           obj.boxWidth = bw; obj.fontFamily = fontFamily; obj.fontSize = fontSize;
           obj.fontBold = fontBold; obj.fontItalic = fontItalic; obj.fontUnder = fontUnder; obj.color = color;
         } else { objects = objects.filter(o => o.id!==editId); }
@@ -502,7 +497,7 @@
     } else if (raw.trim()) {
       objects.push({ id: makeId(), type: 'text',
         x: parseInt(ta.dataset.cx), y: parseInt(ta.dataset.cy), boxWidth: bw,
-        text: bakeText(raw, fontFamily, fontSize, fontBold, fontItalic, bw),
+        text: raw,
         fontFamily, fontSize, fontBold, fontItalic, fontUnder, color });
       render(); saveState();
     }
@@ -691,9 +686,9 @@
     if (hit) editTextObject(hit);
   });
 
-  mainCanvas.addEventListener('touchstart', e => { e.preventDefault(); onDown(e); }, {passive:false});
-  mainCanvas.addEventListener('touchmove',  e => { e.preventDefault(); onMove(e); }, {passive:false});
-  mainCanvas.addEventListener('touchend',   e => { e.preventDefault(); onUp(e);   }, {passive:false});
+  mainCanvas.addEventListener('touchstart', e => { if (e.touches.length >= 2) return; e.preventDefault(); onDown(e); }, {passive:false});
+  mainCanvas.addEventListener('touchmove',  e => { if (e.touches.length >= 2) return; e.preventDefault(); onMove(e); }, {passive:false});
+  mainCanvas.addEventListener('touchend',   e => { e.preventDefault(); onUp(e); }, {passive:false});
 
   function onDown(e) {
     const {x,y} = getPos(e);
@@ -834,12 +829,73 @@
   }
 
   // ── Sidebar toggle (mobile) ────────────────────────────────
+  function setSidebarOpen(open) {
+    sidebar.classList.toggle('open', open);
+    if (sidebarHandle) sidebarHandle.classList.toggle('sidebar-open', open);
+  }
+
   if (sidebarToggle) {
-    sidebarToggle.addEventListener('click', e => { e.stopPropagation(); sidebar.classList.toggle('open'); });
+    sidebarToggle.addEventListener('click', e => { e.stopPropagation(); setSidebarOpen(!sidebar.classList.contains('open')); });
     document.getElementById('canvas-area').addEventListener('pointerdown', () => {
-      if (sidebar.classList.contains('open')) sidebar.classList.remove('open');
+      if (sidebar.classList.contains('open')) setSidebarOpen(false);
     });
   }
+
+  if (sidebarHandle) {
+    sidebarHandle.addEventListener('click', e => { e.stopPropagation(); setSidebarOpen(!sidebar.classList.contains('open')); });
+  }
+
+  // Auto-close sidebar on mobile after picking a tool
+  document.querySelectorAll('.tool-btn').forEach(btn => btn.addEventListener('click', () => {
+    if (window.innerWidth <= 700 && sidebar.classList.contains('open')) {
+      setTimeout(() => setSidebarOpen(false), 1000);
+    }
+  }));
+
+  // ── Pinch zoom + pan (mobile) ──────────────────────────────
+  let pinchStart = null;
+
+  function syncZoomSlider(z) {
+    if (!zoomSlider) return;
+    zoomSlider.value = Math.max(1, Math.min(100, Math.round(1 + 99 * Math.log(z / 0.1) / Math.log(80))));
+  }
+
+  canvasScroll.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      if (drawing) { freehandEnd(); drawing = false; }
+      const t0 = e.touches[0], t1 = e.touches[1];
+      pinchStart = {
+        dist: Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+        zoom,
+        midX: (t0.clientX + t1.clientX) / 2,
+        midY: (t0.clientY + t1.clientY) / 2,
+      };
+    }
+  }, {passive: true});
+
+  canvasScroll.addEventListener('touchmove', e => {
+    if (e.touches.length === 2 && pinchStart) {
+      e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist  = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      const midX  = (t0.clientX + t1.clientX) / 2;
+      const midY  = (t0.clientY + t1.clientY) / 2;
+      const scale = dist / pinchStart.dist;
+      if (Math.abs(scale - 1) > 0.01) {
+        const newZoom = Math.max(0.25, Math.min(4, pinchStart.zoom * scale));
+        setZoom(newZoom);
+        syncZoomSlider(newZoom);
+      }
+      canvasScroll.scrollLeft += pinchStart.midX - midX;
+      canvasScroll.scrollTop  += pinchStart.midY - midY;
+      pinchStart.midX = midX;
+      pinchStart.midY = midY;
+    }
+  }, {passive: false});
+
+  canvasScroll.addEventListener('touchend', e => {
+    if (e.touches.length < 2) pinchStart = null;
+  }, {passive: true});
 
   // ── Impressum popup ────────────────────────────────────────
   const impressumBtn   = document.getElementById('impressum-btn');
