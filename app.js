@@ -686,9 +686,17 @@
     if (hit) editTextObject(hit);
   });
 
-  mainCanvas.addEventListener('touchstart', e => { if (e.touches.length >= 2) return; e.preventDefault(); onDown(e); }, {passive:false});
-  mainCanvas.addEventListener('touchmove',  e => { if (e.touches.length >= 2) return; e.preventDefault(); onMove(e); }, {passive:false});
-  mainCanvas.addEventListener('touchend',   e => { e.preventDefault(); onUp(e); }, {passive:false});
+  mainCanvas.addEventListener('touchstart', e => {
+    if (e.touches.length >= 2) return;
+    if (zoom > 1.01) return; // let browser pan when zoomed in
+    e.preventDefault(); onDown(e);
+  }, {passive:false});
+  mainCanvas.addEventListener('touchmove', e => {
+    if (e.touches.length >= 2) return;
+    if (zoom > 1.01) return; // let browser pan when zoomed in
+    e.preventDefault(); onMove(e);
+  }, {passive:false});
+  mainCanvas.addEventListener('touchend', e => { e.preventDefault(); onUp(e); }, {passive:false});
 
   function onDown(e) {
     const {x,y} = getPos(e);
