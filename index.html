@@ -20,9 +20,18 @@
     <!-- ── Sidebar ── -->
     <aside id="sidebar">
       <div id="logo">ppr<strong>blank</strong></div>
+      <div class="tool-section mandala-mode-row">
+        <div id="mandala-toggle-wrapper">
+          <span class="mandala-toggle-label sketch-label">Sketch</span>
+          <button id="mandala-mode-btn" class="mandala-toggle" title="Switch to Mandala mode">
+            <span class="mandala-toggle-knob"></span>
+          </button>
+          <span class="mandala-toggle-label mandala-label">Mandala</span>
+        </div>
+      </div>
 
       <!-- Select -->
-      <div class="tool-section">
+      <div class="tool-section" id="select-section">
         <span class="section-label">Select</span>
         <div class="tool-row">
           <button class="tool-btn" data-tool="select" title="Select &amp; Move (V)">
@@ -32,7 +41,7 @@
       </div>
 
       <!-- Draw -->
-      <div class="tool-section">
+      <div class="tool-section" id="draw-section">
         <span class="section-label">Draw</span>
         <div class="tool-row">
           <button class="tool-btn active" data-tool="pen" title="Pen">
@@ -51,7 +60,7 @@
       </div>
 
       <!-- Shapes -->
-      <div class="tool-section">
+      <div class="tool-section" id="shapes-section">
         <span class="section-label">Shapes</span>
         <div class="tool-row">
           <button class="tool-btn" data-tool="rect" title="Rectangle">
@@ -78,11 +87,17 @@
           <button class="tool-btn" data-tool="parallelogram" title="Parallelogram">
             <svg viewBox="0 0 24 24"><polygon points="7,5 21,5 17,19 3,19" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
           </button>
+          <button class="tool-btn" data-tool="star" title="Star">
+            <svg viewBox="0 0 24 24"><polygon points="12,2 14.9,8.3 21.8,9.2 16.5,13.7 17.9,20.6 12,17.4 6.1,20.6 7.5,13.7 2.2,9.2 9.1,8.3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+          </button>
+          <button class="tool-btn" data-tool="curve" title="Curved Line">
+            <svg viewBox="0 0 24 24"><path d="M3 17 C8 4, 16 4, 21 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="3" cy="17" r="1.5"/><circle cx="21" cy="7" r="1.5"/></svg>
+          </button>
         </div>
       </div>
 
       <!-- Fill & Text -->
-      <div class="tool-section">
+      <div class="tool-section" id="fill-text-section">
         <span class="section-label">Fill &amp; Text</span>
         <div class="tool-row">
           <button class="tool-btn" data-tool="fill" title="Fill / Bucket">
@@ -94,13 +109,76 @@
         </div>
       </div>
 
+      <!-- Mandala -->
+      <div class="tool-section" id="mandala-section" style="display:none">
+        <span class="section-label">Mandala</span>
+        <div class="tool-row">
+          <button class="tool-btn" id="mandala-btn" title="Generate mandala">☸</button>
+        </div>
+        <div class="label-row" style="margin-top:8px">
+          <span class="section-label">Segments</span>
+          <span id="mandala-value">12</span>
+        </div>
+        <input type="range" id="mandala-slices" min="6" max="24" step="2" value="12">
+        <div class="label-row" style="margin-top:10px">
+          <span class="section-label">Pattern</span>
+        </div>
+        <select id="mandala-pattern" style="width:100%; padding:4px; border-radius:4px; border:1px solid #d0d4da; font-size:11px;">
+          <option value="0">Classic Wedges</option>
+          <option value="1">Spiral Petals</option>
+          <option value="2">Concentric Circles</option>
+          <option value="3">Flower Petals</option>
+          <option value="4">Star Burst</option>
+          <option value="5">Triangular Grid</option>
+          <option value="6">Nested Squares</option>
+          <option value="7">Curved Ribbons</option>
+          <option value="8">Radial Waves</option>
+          <option value="9">Dot Grid</option>
+          <option value="10">Stacked Rings</option>
+          <option value="11">Geometric Diamonds</option>
+          <option value="12">Spiral Galaxy</option>
+          <option value="13">Chakra Layers</option>
+          <option value="14">Hexagon Honeycomb</option>
+          <option value="15">Organic Blobs</option>
+          <option value="16">Kaleidoscope Triangles</option>
+          <option value="17">Rose Curve</option>
+          <option value="18">Rings and Spokes</option>
+          <option value="19">Fractal Spirals</option>
+        </select>
+        <div class="label-row" style="margin-top:8px">
+          <span class="section-label">Design</span>
+        </div>
+        <select id="mandala-design" style="width:100%; padding:4px; border-radius:4px; border:1px solid #d0d4da; font-size:11px;">
+          <option value="0">Original</option>
+          <option value="1">Coral Dream</option>
+          <option value="2">Dark Modern</option>
+          <option value="3">Pastel</option>
+          <option value="4">Deep Purple</option>
+          <option value="5">Forest</option>
+          <option value="6">Warm Earthy</option>
+          <option value="7">Github Dark</option>
+          <option value="8">Ocean Blue</option>
+          <option value="9">Vintage</option>
+          <option value="10">Neon</option>
+          <option value="11">Warm Retro</option>
+          <option value="12">Nautical</option>
+          <option value="13">Bold Primary</option>
+          <option value="14">Earth Tones</option>
+          <option value="15">USA Patriotic</option>
+          <option value="16">Hot Pink</option>
+          <option value="17">Blues</option>
+          <option value="18">Warm Yellows</option>
+          <option value="19">University Colors</option>
+        </select>
+      </div>
+
       <!-- Size -->
       <div class="tool-section">
         <div class="label-row">
           <span class="section-label">Size</span>
-          <span id="size-display">4</span>
+          <span id="size-display">2</span>
         </div>
-        <input type="range" id="size-slider" min="1" max="50" value="4">
+        <input type="range" id="size-slider" min="1" max="50" value="2">
       </div>
 
       <!-- Shape fill style -->
@@ -138,6 +216,14 @@
       <!-- Selection info (shown when object is selected) -->
       <div class="tool-section" id="select-info" style="display:none">
         <span class="section-label">Selected</span>
+        <div class="label-row">
+          <span class="section-label">Rotate</span>
+          <span id="rotate-value">0°</span>
+        </div>
+        <div class="tool-row">
+          <button class="tool-btn" id="rotate-left-btn" title="Rotate left">⟲</button>
+          <button class="tool-btn" id="rotate-right-btn" title="Rotate right">⟳</button>
+        </div>
         <button id="delete-selected-btn" class="delete-btn">&#x2715; Delete</button>
       </div>
 

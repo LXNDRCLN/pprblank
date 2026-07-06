@@ -30,6 +30,7 @@
   const fillTextSection = document.getElementById('fill-text-section');
   const mandalaSection = document.getElementById('mandala-section');
   const mandalaModeBtn = document.getElementById('mandala-mode-btn');
+  const selectSection = document.getElementById('select-section');
   const drawSection = document.getElementById('draw-section');
   const shapesSection = document.getElementById('shapes-section');
   const selectInfoSec = document.getElementById('select-info');
@@ -62,10 +63,11 @@
   // ── Tool state ─────────────────────────────────────────────
   let tool       = 'pen';
   let color      = '#000000';
-  let brushSize  = 4;
+  let brushSize  = 2;
   let shapeStyle = 'outline';
   let fontFamily = 'Arial';
   let mandalaMode = false;
+  let mandalaSnapshot = null; // persists mandala canvas across mode switches
   let fontSize   = 20;
   let fontBold   = false;
   let fontItalic = false;
@@ -145,6 +147,25 @@
   }
 
   function drawShapeObj(ctx, obj) {
+    if (obj.type === 'triangle' && obj.pts) {
+      const [p0, p1, p2] = obj.pts;
+      const filled = obj.style === 'filled';
+      const tcx = (p0.x + p1.x + p2.x) / 3, tcy = (p0.y + p1.y + p2.y) / 3;
+      ctx.save();
+      ctx.translate(tcx, tcy);
+      if (obj.angle) ctx.rotate(obj.angle);
+      ctx.strokeStyle = obj.color; ctx.fillStyle = obj.color;
+      ctx.lineWidth = obj.size; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(p0.x - tcx, p0.y - tcy);
+      ctx.lineTo(p1.x - tcx, p1.y - tcy);
+      ctx.lineTo(p2.x - tcx, p2.y - tcy);
+      ctx.closePath();
+      if (filled) ctx.fill(); ctx.stroke();
+      ctx.restore();
+      return;
+    }
     const { x1, y1, x2, y2, type, color: c, size: s, style: st, angle = 0 } = obj;
     const filled = st === 'filled';
     const cx = (x1 + x2) / 2;
@@ -295,6 +316,11 @@
 
   // ── Bounds & hit test ──────────────────────────────────────
   function getBounds(obj) {
+    if (obj.type === 'triangle' && obj.pts) {
+      const xs = obj.pts.map(p => p.x), ys = obj.pts.map(p => p.y);
+      const x = Math.min(...xs), y = Math.min(...ys);
+      return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+    }
     if (obj.type === 'text') {
       mc.save(); mc.font = buildFont(obj);
       const lines = obj.boxWidth ? wrapText(mc, obj.text || '', obj.boxWidth - 8) : (obj.text ? obj.text.split('\n') : ['']);
@@ -347,6 +373,7 @@
   const HANDLE_CURSORS = ['nw-resize','n-resize','ne-resize','e-resize','se-resize','s-resize','sw-resize','w-resize'];
 
   function getHandlePoints(obj) {
+    if (obj.type === 'triangle' && obj.pts) return obj.pts.map(p => [p.x, p.y]);
     const b = getBounds(obj), pad = 7;
     const hx = b.x-pad, hy = b.y-pad, hw = b.w+pad*2, hh = b.h+pad*2;
     return [
@@ -531,27 +558,32 @@
       }
     }
 
-    // Anti-aliasing fringe fix: 8-neighbour expansion for pixels close to the seed
-    // colour that were blocked only by soft anti-aliased blending at shape edges.
-    const FRINGE_TOL = 70;
-    const fringe = new Uint8Array(W*H);
-    for (let i = 0; i < W*H; i++) {
-      if (!filled[i]) continue;
-      const xi = i%W, yi = (i/W)|0;
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          if (!dx && !dy) continue;
-          const nx = xi+dx, ny = yi+dy;
-          if (nx<0||nx>=W||ny<0||ny>=H) continue;
-          const n = ny*W+nx;
-          if (filled[n]||fringe[n]) continue;
-          const ni = n*4;
-          if (Math.abs(data[ni]-tR)<=FRINGE_TOL && Math.abs(data[ni+1]-tG)<=FRINGE_TOL && Math.abs(data[ni+2]-tB)<=FRINGE_TOL)
-            fringe[n] = 1;
+    // Multi-pass anti-aliasing fringe fix: expands fill into blended edge pixels.
+    // 3 passes catch up to 3-pixel-wide anti-aliasing zones.
+    const FRINGE_TOL = 100;
+    for (let pass = 0; pass < 3; pass++) {
+      const fringe = new Uint8Array(W*H);
+      let anyAdded = false;
+      for (let i = 0; i < W*H; i++) {
+        if (!filled[i]) continue;
+        const xi = i%W, yi = (i/W)|0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            if (!dx && !dy) continue;
+            const nx = xi+dx, ny = yi+dy;
+            if (nx<0||nx>=W||ny<0||ny>=H) continue;
+            const n = ny*W+nx;
+            if (filled[n]||fringe[n]) continue;
+            const ni = n*4;
+            if (Math.abs(data[ni]-tR)<=FRINGE_TOL && Math.abs(data[ni+1]-tG)<=FRINGE_TOL && Math.abs(data[ni+2]-tB)<=FRINGE_TOL) {
+              fringe[n] = 1; anyAdded = true;
+            }
+          }
         }
       }
+      for (let i = 0; i < W*H; i++) { if (fringe[i]) filled[i] = 1; }
+      if (!anyAdded) break;
     }
-    for (let i = 0; i < W*H; i++) { if (fringe[i]) filled[i] = 1; }
 
     const pcData = pc.getImageData(0, 0, A4_W, A4_H);
     for (let i = 0; i < W*H; i++) {
@@ -1045,6 +1077,11 @@
   }
 
   function applyResize(obj, handle, dx, dy) {
+    if (obj.type === 'triangle' && obj.pts) {
+      const snap = resizeSnap.pts[handle];
+      obj.pts[handle] = { x: snap.x + dx, y: snap.y + dy };
+      return;
+    }
     const s = resizeSnap;
     switch(handle) {
       case 0: obj.x1=s.x1+dx; obj.y1=s.y1+dy; break;
@@ -1106,7 +1143,7 @@
         const selObj = objects.find(o => o.id===selectedId);
         if (selObj && selObj.type!=='text') {
           const hi = getHandleAt(selObj, x, y);
-          if (hi >= 0) { mainCanvas.style.cursor = HANDLE_CURSORS[hi]; return; }
+          if (hi >= 0) { mainCanvas.style.cursor = (selObj.type==='triangle'&&selObj.pts) ? 'crosshair' : HANDLE_CURSORS[hi]; return; }
         }
       }
       const hit = [...objects].reverse().find(o => hitTest(o, x, y));
@@ -1119,6 +1156,7 @@
     if (!obj) return;
     const dx=x-dragStartX, dy=y-dragStartY;
     if (obj.type==='text') { obj.x=dragSnap.x+dx; obj.y=dragSnap.y+dy; }
+    else if (obj.type==='triangle'&&obj.pts) { obj.pts=dragSnap.pts.map(p=>({x:p.x+dx,y:p.y+dy})); }
     else { obj.x1=dragSnap.x1+dx; obj.y1=dragSnap.y1+dy; obj.x2=dragSnap.x2+dx; obj.y2=dragSnap.y2+dy; }
     didMove=true; render(); renderOverlay();
   }
@@ -1266,12 +1304,22 @@
     if (tool==='pen'||tool==='brush'||tool==='eraser') { freehandEnd(); saveState(); return; }
     if (SHAPE_TOOLS.has(tool)) {
       oc.clearRect(0,0,A4_W,A4_H);
-      objects.push({ id:makeId(), type:tool, x1:startX,y1:startY,x2:x,y2:y, color,size:brushSize,style:shapeStyle, angle: 0 });
+      let newObj;
+      if (tool === 'triangle') {
+        newObj = { id:makeId(), type:'triangle',
+          pts:[{x:Math.round((startX+x)/2),y:startY},{x,y},{x:startX,y}],
+          color, size:brushSize, style:shapeStyle, angle:0 };
+      } else {
+        newObj = { id:makeId(), type:tool, x1:startX,y1:startY,x2:x,y2:y, color,size:brushSize,style:shapeStyle, angle:0 };
+      }
+      objects.push(newObj);
       render(); saveState();
     }
   }
 
   // ── Keyboard shortcuts ─────────────────────────────────────
+  let arrowMoved = false;
+
   document.addEventListener('keydown', e => {
     const tag = document.activeElement.tagName;
     if (tag==='TEXTAREA'||tag==='INPUT'||tag==='SELECT') return;
@@ -1280,6 +1328,25 @@
     if ((e.key==='Delete'||e.key==='Backspace')&&selectedId!==null) { e.preventDefault(); deleteSelected(); }
     if (e.key==='v'||e.key==='V') selectTool('select');
     if (e.key==='Escape') { selectedId=null; renderOverlay(); updateSelectUI(); }
+    if (selectedId!==null && ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key)) {
+      e.preventDefault();
+      const obj = objects.find(o => o.id===selectedId);
+      if (obj) {
+        const dx = e.key==='ArrowLeft' ? -2 : e.key==='ArrowRight' ? 2 : 0;
+        const dy = e.key==='ArrowUp'   ? -2 : e.key==='ArrowDown'  ? 2 : 0;
+        if (obj.type==='text') { obj.x+=dx; obj.y+=dy; }
+        else if (obj.type==='triangle'&&obj.pts) { obj.pts=obj.pts.map(p=>({x:p.x+dx,y:p.y+dy})); }
+        else { obj.x1+=dx; obj.y1+=dy; obj.x2+=dx; obj.y2+=dy; }
+        render(); renderOverlay();
+        arrowMoved = true;
+      }
+    }
+  });
+
+  document.addEventListener('keyup', e => {
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key) && arrowMoved) {
+      saveState(); arrowMoved = false;
+    }
   });
 
   // ── Tool selection ─────────────────────────────────────────
@@ -1295,16 +1362,36 @@
   }
 
   function setMandalaMode(enabled) {
+    const wasEnabled = mandalaMode;
     mandalaMode = enabled;
+
+    if (!wasEnabled && enabled) {
+      // Entering mandala: restore saved mandala work (or keep current canvas blank)
+      commitText(); selectedId = null;
+      if (mandalaSnapshot) {
+        pc.putImageData(mandalaSnapshot.pixelData, 0, 0);
+        objects = JSON.parse(JSON.stringify(mandalaSnapshot.objects));
+        hist = [makeEntry()]; histIdx = 0;
+        render(); renderOverlay(); updateSelectUI();
+      }
+    } else if (wasEnabled && !enabled) {
+      // Leaving mandala: save mandala work, give sketch a fresh blank canvas
+      commitText(); selectedId = null;
+      mandalaSnapshot = makeEntry();
+      pc.fillStyle = '#ffffff'; pc.fillRect(0, 0, A4_W, A4_H);
+      objects = [];
+      hist = [makeEntry()]; histIdx = 0;
+      render(); renderOverlay(); updateSelectUI();
+    }
+
     if (mandalaModeBtn) {
       mandalaModeBtn.classList.toggle('active', enabled);
-      // change label when in mandala mode so user can switch back to sketch/main page
-      mandalaModeBtn.textContent = enabled ? 'Sketch mode' : '☸ Mandala';
-      mandalaModeBtn.title = enabled ? 'Return to Sketch mode' : 'Mandala mode';
+      mandalaModeBtn.title = enabled ? 'Switch to Sketch mode' : 'Switch to Mandala mode';
     }
     if (sidebar) sidebar.classList.toggle('mandala-mode', enabled);
     if (mandalaSection) mandalaSection.style.display = enabled ? 'block' : 'none';
     if (fillTextSection) fillTextSection.style.display = enabled ? 'none' : 'block';
+    if (selectSection) selectSection.style.display = 'block';
     if (drawSection) drawSection.style.display = 'block';
     if (shapesSection) shapesSection.style.display = 'block';
     if (enabled) {
