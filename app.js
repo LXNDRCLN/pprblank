@@ -3,6 +3,7 @@
 
   const A4_W = 794;
   const A4_H = 1123;
+  const dpr  = Math.min(Math.ceil(window.devicePixelRatio || 1), 2);
 
   const PALETTE = [
     '#000000','#1c1c1c','#3d3d3d','#666666','#909090','#b3b3b3','#d6d6d6','#ffffff',
@@ -29,7 +30,8 @@
   const textOptSec    = document.getElementById('text-options-section');
   const fillTextSection = document.getElementById('fill-text-section');
   const mandalaSection = document.getElementById('mandala-section');
-  const mandalaModeBtn = document.getElementById('mandala-mode-btn');
+  const modeSketchBtn = document.getElementById('mode-sketch-btn');
+  const modeMandalaBtn = document.getElementById('mode-mandala-btn');
   const selectSection = document.getElementById('select-section');
   const drawSection = document.getElementById('draw-section');
   const shapesSection = document.getElementById('shapes-section');
@@ -63,7 +65,7 @@
   // ── Tool state ─────────────────────────────────────────────
   let tool       = 'pen';
   let color      = '#000000';
-  let brushSize  = 2;
+  let brushSize  = 1;
   let shapeStyle = 'outline';
   let fontFamily = 'Arial';
   let mandalaMode = false;
@@ -121,8 +123,12 @@
   function redo() { if (histIdx < hist.length - 1) { histIdx++; restoreEntry(hist[histIdx]); } }
 
   // ── Canvas + zoom ──────────────────────────────────────────
-  mainCanvas.width    = A4_W;  mainCanvas.height   = A4_H;
-  overlayCanvas.width = A4_W;  overlayCanvas.height = A4_H;
+  mainCanvas.width    = A4_W * dpr;  mainCanvas.height   = A4_H * dpr;
+  overlayCanvas.width = A4_W * dpr;  overlayCanvas.height = A4_H * dpr;
+  mc.scale(dpr, dpr);
+  oc.scale(dpr, dpr);
+  mc.imageSmoothingEnabled = true;
+  mc.imageSmoothingQuality = 'high';
 
   function setZoom(z) {
     zoom = z;
@@ -137,7 +143,7 @@
   function render() {
     mc.fillStyle = '#ffffff';
     mc.fillRect(0, 0, A4_W, A4_H);
-    mc.drawImage(pixelCanvas, 0, 0);
+    mc.drawImage(pixelCanvas, 0, 0, A4_W, A4_H);
     objects.forEach(obj => drawObject(mc, obj));
   }
 
@@ -461,16 +467,26 @@
 
   function drawSmoothStroke(points) {
     if (points.length === 0) return;
+    if (points.length === 1) {
+      pc.beginPath();
+      pc.arc(points[0].x, points[0].y, Math.max(pc.lineWidth / 2, 0.5), 0, Math.PI * 2);
+      pc.fill();
+      return;
+    }
     pc.beginPath();
     pc.moveTo(points[0].x, points[0].y);
-    for (let i = 1; i < points.length - 1; i++) {
-      const mx = (points[i].x + points[i+1].x) / 2;
-      const my = (points[i].y + points[i+1].y) / 2;
-      pc.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-    }
-    if (points.length > 1) {
-      const last = points[points.length - 1];
-      pc.lineTo(last.x, last.y);
+    if (points.length === 2) { pc.lineTo(points[1].x, points[1].y); pc.stroke(); return; }
+    // Catmull-Rom → cubic Bezier: passes through every recorded point for smooth natural curves
+    for (let i = 0; i < points.length - 1; i++) {
+      const p0 = i === 0               ? points[0]               : points[i - 1];
+      const p1 = points[i];
+      const p2 = points[i + 1];
+      const p3 = i + 2 < points.length ? points[i + 2]           : p2;
+      const cp1x = p1.x + (p2.x - p0.x) / 6;
+      const cp1y = p1.y + (p2.y - p0.y) / 6;
+      const cp2x = p2.x - (p3.x - p1.x) / 6;
+      const cp2y = p2.y - (p3.y - p1.y) / 6;
+      pc.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
     }
     pc.stroke();
   }
@@ -482,6 +498,8 @@
   }
 
   function freehandMove(x, y) {
+    const lp = strokePoints[strokePoints.length - 1];
+    if (Math.hypot(x - lp.x, y - lp.y) < 1.5) return;
     strokePoints.push({x, y});
     if (tool === 'eraser') {
       pc.strokeStyle = '#ffffff'; pc.lineWidth = brushSize*4; pc.globalAlpha = 1;
@@ -518,76 +536,124 @@
     return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
   }
 
+  function pointInTriangle(px, py, ax, ay, bx, by, cx2, cy2) {
+    const d1=(px-bx)*(ay-by)-(ax-bx)*(py-by);
+    const d2=(px-cx2)*(by-cy2)-(bx-cx2)*(py-cy2);
+    const d3=(px-ax)*(cy2-ay)-(cx2-ax)*(py-ay);
+    return !((d1<0||d2<0||d3<0)&&(d1>0||d2>0||d3>0));
+  }
+
+  function pointInPolygon(px, py, pts) {
+    let inside=false;
+    for (let i=0,j=pts.length-1; i<pts.length; j=i++) {
+      const xi=pts[i].x,yi=pts[i].y,xj=pts[j].x,yj=pts[j].y;
+      if (((yi>py)!==(yj>py))&&px<(xj-xi)*(py-yi)/(yj-yi)+xi) inside=!inside;
+    }
+    return inside;
+  }
+
+  function pointInShape(o, px, py) {
+    if (o.type==='text'||o.type==='line'||o.type==='arrow'||o.type==='curve') return false;
+    if (o.type==='triangle'&&o.pts) {
+      const [p0,p1,p2]=o.pts;
+      const tcx=(p0.x+p1.x+p2.x)/3, tcy=(p0.y+p1.y+p2.y)/3;
+      let lx=px-tcx, ly=py-tcy;
+      if (o.angle) { const c=Math.cos(-o.angle),s=Math.sin(-o.angle); [lx,ly]=[lx*c-ly*s,lx*s+ly*c]; }
+      return pointInTriangle(lx,ly, p0.x-tcx,p0.y-tcy, p1.x-tcx,p1.y-tcy, p2.x-tcx,p2.y-tcy);
+    }
+    const {x1,y1,x2,y2,angle=0}=o;
+    const cx=(x1+x2)/2, cy=(y1+y2)/2;
+    let lx=px-cx, ly=py-cy;
+    if (angle) { const c=Math.cos(-angle),s=Math.sin(-angle); [lx,ly]=[lx*c-ly*s,lx*s+ly*c]; }
+    const rx1=x1-cx, ry1=y1-cy, rx2=x2-cx, ry2=y2-cy;
+    switch (o.type) {
+      case 'rect': return lx>=Math.min(rx1,rx2)&&lx<=Math.max(rx1,rx2)&&ly>=Math.min(ry1,ry2)&&ly<=Math.max(ry1,ry2);
+      case 'square': { const sLen=Math.min(Math.abs(rx2-rx1),Math.abs(ry2-ry1)); const sx2=rx1+Math.sign(rx2-rx1)*sLen,sy2=ry1+Math.sign(ry2-ry1)*sLen; return lx>=Math.min(rx1,sx2)&&lx<=Math.max(rx1,sx2)&&ly>=Math.min(ry1,sy2)&&ly<=Math.max(ry1,sy2); }
+      case 'ellipse': { const ecx=(rx1+rx2)/2,ecy=(ry1+ry2)/2,rx=Math.abs(rx2-rx1)/2,ry=Math.abs(ry2-ry1)/2; if(rx<0.5||ry<0.5) return false; const dx=(lx-ecx)/rx,dy=(ly-ecy)/ry; return dx*dx+dy*dy<=1; }
+      case 'triangle': { const mid=(rx1+rx2)/2; return pointInTriangle(lx,ly, mid,ry1, rx2,ry2, rx1,ry2); }
+      case 'hexagon': { const ecx=(rx1+rx2)/2,ecy=(ry1+ry2)/2,hrx=Math.abs(rx2-rx1)/2,hry=Math.abs(ry2-ry1)/2; const pts=[]; for(let k=0;k<6;k++){const a=(Math.PI/3)*k; pts.push({x:ecx+hrx*Math.cos(a),y:ecy+hry*Math.sin(a)});} return pointInPolygon(lx,ly,pts); }
+      case 'parallelogram': { const bx=Math.min(rx1,rx2),by=Math.min(ry1,ry2),bw=Math.abs(rx2-rx1),bh=Math.abs(ry2-ry1),skew=bw*0.25; return pointInPolygon(lx,ly,[{x:bx+skew,y:by},{x:bx+bw,y:by},{x:bx+bw-skew,y:by+bh},{x:bx,y:by+bh}]); }
+      case 'star': { const ecx=(rx1+rx2)/2,ecy=(ry1+ry2)/2,outer=Math.min(Math.abs(rx2-rx1),Math.abs(ry2-ry1))/2,inner=outer*0.45; const pts=[]; for(let i=0;i<10;i++){const r=i%2===0?outer:inner,a=Math.PI/2+i*Math.PI/5; pts.push({x:ecx+r*Math.cos(a),y:ecy-r*Math.sin(a)});} return pointInPolygon(lx,ly,pts); }
+      default: return false;
+    }
+  }
+
   function floodFill(px, py) {
-    // Change color of a filled shape if clicked inside one
-    const filledHit = [...objects].reverse().find(o => {
-      if (o.style !== 'filled') return false;
-      const b = getBounds(o);
-      return px >= b.x && px <= b.x+b.w && py >= b.y && py <= b.y+b.h;
-    });
-    if (filledHit) { filledHit.color = color; render(); return; }
+    // Recolor a filled shape only when no outline shape is also at the click point.
+    if (!objects.some(o => o.style !== 'filled' && pointInShape(o, px, py))) {
+      const hit = [...objects].reverse().find(o => o.style === 'filled' && pointInShape(o, px, py));
+      if (hit) { hit.color = color; render(); return; }
+    }
 
-    // Composite scene for boundary-aware fill
-    const tmp = document.createElement('canvas');
-    tmp.width = A4_W; tmp.height = A4_H;
-    const tc = tmp.getContext('2d');
-    tc.fillStyle = '#ffffff'; tc.fillRect(0, 0, A4_W, A4_H);
-    tc.drawImage(pixelCanvas, 0, 0);
-    objects.forEach(obj => drawObject(tc, obj));
-
-    const imgData = tc.getImageData(0, 0, A4_W, A4_H);
-    const data = imgData.data;
     const W = A4_W, H = A4_H;
-    const base = (py*W+px)*4;
-    const tR = data[base], tG = data[base+1], tB = data[base+2];
+    const ipx = Math.round(px), ipy = Math.round(py);
+    if (ipx < 0 || ipx >= W || ipy < 0 || ipy >= H) return;
+
+    // BFS composite: render all shapes with min 2px stroke. A 4-directional BFS cannot cross
+    // a 2px solid stroke, so every visible outline (including strokes from OTHER shapes that
+    // cross through the fill region) acts as a hard barrier. This lets any closed area formed
+    // by crossing shape strokes fill correctly as an independent region.
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    const tc = tmp.getContext('2d');
+    tc.fillStyle = '#ffffff'; tc.fillRect(0, 0, W, H);
+    tc.drawImage(pixelCanvas, 0, 0);
+    objects.forEach(obj => drawObject(tc, (obj.size || 1) >= 2 ? obj : Object.assign({}, obj, { size: 2 })));
+
+    const imgData = tc.getImageData(0, 0, W, H);
+    const data = imgData.data;
+    const startIdx = ipy * W + ipx;
+    const tR = data[startIdx * 4], tG = data[startIdx * 4 + 1], tB = data[startIdx * 4 + 2];
     const [fR, fG, fB] = hexToRgb(color);
-    if (tR===fR && tG===fG && tB===fB) return;
+    if (tR === fR && tG === fG && tB === fB) return;
 
     const TOL = 30;
-    function match(i) {
-      return Math.abs(data[i]-tR)<=TOL && Math.abs(data[i+1]-tG)<=TOL && Math.abs(data[i+2]-tB)<=TOL;
-    }
-    const filled = new Uint8Array(W*H), visited = new Uint8Array(W*H);
-    const stack = [py*W+px]; visited[py*W+px] = 1;
+    const visited  = new Uint8Array(W * H);
+    const bfsFilled = new Uint8Array(W * H);
+    const stack = [startIdx];
+    visited[startIdx] = 1;
     while (stack.length) {
-      const pos = stack.pop(), xi = pos%W;
-      filled[pos] = 1;
-      for (const n of [pos-1, pos+1, pos-W, pos+W]) {
-        if (n<0||n>=W*H||visited[n]||Math.abs((n%W)-xi)>1||!match(n*4)) continue;
-        visited[n] = 1; stack.push(n);
+      const pos = stack.pop();
+      bfsFilled[pos] = 1;
+      const xi = pos % W;
+      for (const n of [pos - 1, pos + 1, pos - W, pos + W]) {
+        if (n < 0 || n >= W * H || visited[n] || Math.abs((n % W) - xi) > 1) continue;
+        const ni = n * 4;
+        if (Math.abs(data[ni]-tR) <= TOL && Math.abs(data[ni+1]-tG) <= TOL && Math.abs(data[ni+2]-tB) <= TOL) {
+          visited[n] = 1; stack.push(n);
+        }
       }
     }
 
-    // Multi-pass anti-aliasing fringe fix: expands fill into blended edge pixels.
-    // 3 passes catch up to 3-pixel-wide anti-aliasing zones.
-    const FRINGE_TOL = 100;
-    for (let pass = 0; pass < 3; pass++) {
-      const fringe = new Uint8Array(W*H);
-      let anyAdded = false;
-      for (let i = 0; i < W*H; i++) {
-        if (!filled[i]) continue;
-        const xi = i%W, yi = (i/W)|0;
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            if (!dx && !dy) continue;
-            const nx = xi+dx, ny = yi+dy;
-            if (nx<0||nx>=W||ny<0||ny>=H) continue;
-            const n = ny*W+nx;
-            if (filled[n]||fringe[n]) continue;
-            const ni = n*4;
-            if (Math.abs(data[ni]-tR)<=FRINGE_TOL && Math.abs(data[ni+1]-tG)<=FRINGE_TOL && Math.abs(data[ni+2]-tB)<=FRINGE_TOL) {
-              fringe[n] = 1; anyAdded = true;
-            }
+    // Gap correction: the 2px BFS stroke stops fill ~1px short of each shape's actual boundary,
+    // leaving a thin white ring. For every outline shape geometrically containing the click,
+    // expand bfsFilled by 1 pixel into that shape's exact geometry mask — closing the gap
+    // without bleeding outside the mathematical shape boundary.
+    objects.filter(o => o.style !== 'filled' && pointInShape(o, px, py)).forEach(sh => {
+      const gc = document.createElement('canvas');
+      gc.width = W; gc.height = H;
+      const gctx = gc.getContext('2d');
+      drawShapeObj(gctx, Object.assign({}, sh, { style: 'filled', color: '#000000', size: 0.001 }));
+      const gmask = gctx.getImageData(0, 0, W, H).data;
+      // Two-pass dilation: collect candidates against the ORIGINAL bfsFilled state, then
+      // apply. Single-pass would cascade (each expansion enables the next), letting fill
+      // propagate across a 2px stroke barrier instead of stopping 1px into it.
+      const toExpand = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        if (bfsFilled[i] || gmask[i * 4 + 3] === 0) continue;
+        const xi = i % W;
+        for (const n of [i - 1, i + 1, i - W, i + W]) {
+          if (n >= 0 && n < W * H && bfsFilled[n] && Math.abs((n % W) - xi) <= 1) {
+            toExpand[i] = 1; break;
           }
         }
       }
-      for (let i = 0; i < W*H; i++) { if (fringe[i]) filled[i] = 1; }
-      if (!anyAdded) break;
-    }
+      for (let i = 0; i < W * H; i++) { if (toExpand[i]) bfsFilled[i] = 1; }
+    });
 
-    const pcData = pc.getImageData(0, 0, A4_W, A4_H);
-    for (let i = 0; i < W*H; i++) {
-      if (filled[i]) {
+    const pcData = pc.getImageData(0, 0, W, H);
+    for (let i = 0; i < W * H; i++) {
+      if (bfsFilled[i]) {
         pcData.data[i*4]=fR; pcData.data[i*4+1]=fG; pcData.data[i*4+2]=fB; pcData.data[i*4+3]=255;
       }
     }
@@ -1076,6 +1142,396 @@
     saveState();
   }
 
+  // ── Coloring pages (black-outline art for free coloring) ────
+  function cpCircle(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function cpEllipse(ctx, cx, cy, rx, ry, rot) {
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, rot || 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function cpPolygon(ctx, pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function cpLine(ctx, x1, y1, x2, y2) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
+
+  // One ring of petal shapes pointing outward from the origin.
+  function cpPetals(ctx, count, innerR, outerR, width, startAngle) {
+    for (let i = 0; i < count; i++) {
+      const a = (startAngle || 0) + i * (Math.PI * 2 / count);
+      ctx.save();
+      ctx.rotate(a);
+      ctx.beginPath();
+      ctx.moveTo(0, -innerR);
+      ctx.quadraticCurveTo(width, -(innerR + outerR) / 2, 0, -outerR);
+      ctx.quadraticCurveTo(-width, -(innerR + outerR) / 2, 0, -innerR);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  // Smooth closed organic blob through radius multipliers around a circle.
+  function cpBlob(ctx, cx, cy, baseR, variance) {
+    const n = variance.length;
+    const pts = variance.map((v, i) => {
+      const a = i * (Math.PI * 2 / n);
+      return [cx + baseR * v * Math.cos(a), cy + baseR * v * Math.sin(a)];
+    });
+    ctx.beginPath();
+    const last = pts[n - 1];
+    ctx.moveTo((last[0] + pts[0][0]) / 2, (last[1] + pts[0][1]) / 2);
+    for (let i = 0; i < n; i++) {
+      const cur = pts[i], next = pts[(i + 1) % n];
+      ctx.quadraticCurveTo(cur[0], cur[1], (cur[0] + next[0]) / 2, (cur[1] + next[1]) / 2);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  function cpHex(ctx, cx, cy, r) {
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 6 + i * (Math.PI / 3);
+      const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+
+  // Each shape draws within a local -100..100 coordinate box, centered on the origin.
+  const coloringPages = {
+    animals: [
+      { name: 'Cat', draw: (ctx) => {
+        cpEllipse(ctx, 0, 55, 38, 42);
+        cpCircle(ctx, 0, -8, 42);
+        cpPolygon(ctx, [[-38,-34],[-56,-74],[-14,-46]]);
+        cpPolygon(ctx, [[38,-34],[56,-74],[14,-46]]);
+        cpCircle(ctx, -16, -10, 6);
+        cpCircle(ctx, 16, -10, 6);
+        cpPolygon(ctx, [[-6,6],[6,6],[0,14]]);
+        ctx.beginPath();
+        ctx.moveTo(0,14); ctx.quadraticCurveTo(-10,22,-18,16);
+        ctx.moveTo(0,14); ctx.quadraticCurveTo(10,22,18,16);
+        ctx.stroke();
+        cpLine(ctx,-8,10,-48,2); cpLine(ctx,-8,15,-48,18);
+        cpLine(ctx,8,10,48,2);  cpLine(ctx,8,15,48,18);
+        ctx.beginPath();
+        ctx.moveTo(34,90); ctx.bezierCurveTo(70,85,78,50,58,15);
+        ctx.stroke();
+        cpLine(ctx,-20,95,-20,110); cpLine(ctx,-5,97,-5,112);
+        cpLine(ctx,10,97,10,112);  cpLine(ctx,22,95,22,110);
+      } },
+      { name: 'Dog', draw: (ctx) => {
+        cpEllipse(ctx, 0, 58, 42, 36);
+        cpCircle(ctx, 0, -10, 36);
+        cpEllipse(ctx, 0, 18, 20, 15);
+        cpCircle(ctx, 0, 10, 4);
+        [1,-1].forEach((sign) => {
+          ctx.beginPath();
+          ctx.moveTo(sign*30,-25);
+          ctx.bezierCurveTo(sign*55,-15, sign*58,25, sign*38,40);
+          ctx.bezierCurveTo(sign*30,20, sign*28,-5, sign*30,-25);
+          ctx.closePath();
+          ctx.stroke();
+        });
+        cpCircle(ctx, -14, -18, 5);
+        cpCircle(ctx, 14, -18, 5);
+        cpLine(ctx,-28,94,-28,114); cpLine(ctx,-10,94,-10,116);
+        cpLine(ctx,10,94,10,116);  cpLine(ctx,28,94,28,114);
+        ctx.beginPath();
+        ctx.moveTo(40,40); ctx.quadraticCurveTo(75,20,65,-10);
+        ctx.stroke();
+      } },
+      { name: 'Fish', draw: (ctx) => {
+        cpEllipse(ctx, 5, 0, 55, 34);
+        cpPolygon(ctx, [[-50,0],[-85,-28],[-85,28]]);
+        cpPolygon(ctx, [[-5,-32],[15,-58],[35,-30]]);
+        cpPolygon(ctx, [[-5,32],[10,56],[30,30]]);
+        cpCircle(ctx, 42, -8, 6);
+        ctx.beginPath();
+        ctx.moveTo(-12,-22); ctx.quadraticCurveTo(-22,0,-12,22);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8,-26); ctx.quadraticCurveTo(0,0,8,26);
+        ctx.stroke();
+      } },
+      { name: 'Bird', draw: (ctx) => {
+        cpEllipse(ctx, 0, 25, 38, 48);
+        cpCircle(ctx, 26, -30, 24);
+        cpPolygon(ctx, [[48,-32],[68,-26],[47,-18]]);
+        cpCircle(ctx, 30, -34, 3.5);
+        ctx.beginPath();
+        ctx.moveTo(-10,-5);
+        ctx.quadraticCurveTo(-55,10,-30,55);
+        ctx.quadraticCurveTo(-15,35,10,30);
+        ctx.closePath();
+        ctx.stroke();
+        cpLine(ctx,-15,68,-45,95); cpLine(ctx,0,72,-10,105); cpLine(ctx,12,68,20,100);
+        cpLine(ctx,-8,72,-8,95); cpLine(ctx,8,72,8,95);
+        cpPolygon(ctx, [[-14,95],[-8,95],[-11,102]]);
+        cpPolygon(ctx, [[4,95],[10,95],[7,102]]);
+      } },
+      { name: 'Butterfly', draw: (ctx) => {
+        cpEllipse(ctx, 0, 0, 6, 58);
+        cpCircle(ctx, 0, -55, 8);
+        ctx.beginPath();
+        ctx.moveTo(-4,-62); ctx.quadraticCurveTo(-25,-85,-35,-95);
+        ctx.moveTo(4,-62);  ctx.quadraticCurveTo(25,-85,35,-95);
+        ctx.stroke();
+        cpCircle(ctx,-35,-95,3); cpCircle(ctx,35,-95,3);
+        [1,-1].forEach((sign) => {
+          ctx.beginPath();
+          ctx.moveTo(0,-35);
+          ctx.bezierCurveTo(sign*40,-70, sign*95,-45, sign*80,0);
+          ctx.bezierCurveTo(sign*55,-10, sign*20,-5, 0,10);
+          ctx.closePath();
+          ctx.stroke();
+          cpCircle(ctx, sign*45, -30, 12);
+        });
+        [1,-1].forEach((sign) => {
+          ctx.beginPath();
+          ctx.moveTo(0,10);
+          ctx.bezierCurveTo(sign*30,25, sign*55,55, sign*30,80);
+          ctx.bezierCurveTo(sign*10,60, sign*5,30, 0,25);
+          ctx.closePath();
+          ctx.stroke();
+        });
+      } },
+      { name: 'Owl', draw: (ctx) => {
+        cpEllipse(ctx, 0, 15, 46, 55);
+        cpPolygon(ctx, [[-30,-45],[-40,-75],[-15,-52]]);
+        cpPolygon(ctx, [[30,-45],[40,-75],[15,-52]]);
+        cpCircle(ctx, -20, -10, 22); cpCircle(ctx, -20, -10, 10);
+        cpCircle(ctx, 20, -10, 22);  cpCircle(ctx, 20, -10, 10);
+        cpPolygon(ctx, [[-8,15],[8,15],[0,30]]);
+        ctx.beginPath(); ctx.moveTo(-40,10); ctx.quadraticCurveTo(-58,45,-30,75); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(40,10);  ctx.quadraticCurveTo(58,45,30,75);  ctx.stroke();
+        cpLine(ctx,-15,68,-20,80); cpLine(ctx,-15,68,-10,80);
+        cpLine(ctx,15,68,20,80);  cpLine(ctx,15,68,10,80);
+      } },
+    ],
+    flowers: [
+      { name: 'Daisy', draw: (ctx) => {
+        cpPetals(ctx, 10, 18, 55, 14);
+        cpCircle(ctx, 0, 0, 20); cpCircle(ctx, 0, 0, 10);
+        ctx.beginPath(); ctx.moveTo(0,55); ctx.quadraticCurveTo(-10,85,0,100); ctx.stroke();
+        cpEllipse(ctx, -20, 75, 22, 10, -0.4);
+      } },
+      { name: 'Sunflower', draw: (ctx) => {
+        cpPetals(ctx, 14, 20, 58, 10);
+        cpCircle(ctx, 0, 0, 22); cpCircle(ctx, 0, 0, 14); cpCircle(ctx, 0, 0, 7);
+        ctx.beginPath(); ctx.moveTo(0,58); ctx.quadraticCurveTo(5,90,0,105); ctx.stroke();
+        cpEllipse(ctx, 22, 85, 24, 10, 0.5);
+        cpEllipse(ctx, -22, 95, 24, 10, -0.5);
+      } },
+      { name: 'Lotus', draw: (ctx) => {
+        cpPetals(ctx, 7, 15, 65, 26, Math.PI / 7);
+        cpPetals(ctx, 6, 10, 42, 16, 0);
+        cpCircle(ctx, 0, 0, 12);
+        cpEllipse(ctx, 0, 78, 55, 14);
+      } },
+      { name: 'Hibiscus', draw: (ctx) => {
+        cpPetals(ctx, 5, 12, 65, 36, 0);
+        cpCircle(ctx, 0, 0, 10);
+        ctx.beginPath(); ctx.moveTo(0,-5); ctx.quadraticCurveTo(6,-45,2,-80); ctx.stroke();
+        cpCircle(ctx, 2, -82, 4);
+        ctx.beginPath(); ctx.moveTo(0,55); ctx.quadraticCurveTo(-8,85,0,105); ctx.stroke();
+        cpEllipse(ctx, -18, 80, 20, 9, -0.5);
+      } },
+      { name: 'Tulip', draw: (ctx) => {
+        ctx.beginPath();
+        ctx.moveTo(0,-70);
+        ctx.bezierCurveTo(-22,-70,-28,-30,-20,10);
+        ctx.bezierCurveTo(-10,25,10,25,20,10);
+        ctx.bezierCurveTo(28,-30,22,-70,0,-70);
+        ctx.closePath(); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-8,-55);
+        ctx.bezierCurveTo(-40,-55,-48,-15,-30,15);
+        ctx.bezierCurveTo(-25,0,-15,-10,-8,-30);
+        ctx.closePath(); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(8,-55);
+        ctx.bezierCurveTo(40,-55,48,-15,30,15);
+        ctx.bezierCurveTo(25,0,15,-10,8,-30);
+        ctx.closePath(); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,20); ctx.quadraticCurveTo(-5,60,0,105); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0,50); ctx.quadraticCurveTo(-45,45,-55,80); ctx.quadraticCurveTo(-25,70,0,65);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0,70); ctx.quadraticCurveTo(40,65,50,95); ctx.quadraticCurveTo(22,88,0,85);
+        ctx.stroke();
+      } },
+      { name: 'Rose', draw: (ctx) => {
+        ctx.beginPath();
+        const turns = 2.2, steps = 50;
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps, a = t * turns * Math.PI * 2, r = 3 + t * 26;
+          const x = r * Math.cos(a), y = -25 + r * Math.sin(a);
+          if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+        ctx.save();
+        ctx.translate(0,-25);
+        cpPetals(ctx, 6, 26, 55, 28);
+        ctx.restore();
+        cpPolygon(ctx, [[-18,35],[0,15],[18,35]]);
+        ctx.beginPath(); ctx.moveTo(0,40); ctx.quadraticCurveTo(-10,75,0,105); ctx.stroke();
+        cpEllipse(ctx, 22, 78, 20, 9, 0.5);
+      } },
+    ],
+    abstract: [
+      { name: 'Concentric Rings', draw: (ctx) => {
+        for (let r = 15; r <= 90; r += 15) cpCircle(ctx, 0, 0, r);
+      } },
+      { name: 'Honeycomb', draw: (ctx) => {
+        const hexR = 22, rowSpacing = hexR * 1.5, colSpacing = hexR * Math.sqrt(3);
+        for (let row = -3; row <= 3; row++) {
+          const y = row * rowSpacing;
+          const rowOffset = (row % 2 !== 0) ? colSpacing / 2 : 0;
+          for (let col = -3; col <= 3; col++) {
+            const x = col * colSpacing + rowOffset;
+            if (Math.hypot(x, y) > 95) continue;
+            cpHex(ctx, x, y, hexR);
+          }
+        }
+      } },
+      { name: 'Geometric Triangles', draw: (ctx) => {
+        for (let i = 0; i < 8; i++) {
+          const a = i * (Math.PI * 2 / 8);
+          ctx.save(); ctx.rotate(a);
+          cpPolygon(ctx, [[0,-20],[-30,-75],[30,-75]]);
+          ctx.restore();
+        }
+        for (let i = 0; i < 8; i++) {
+          const a = i * (Math.PI * 2 / 8) + Math.PI / 8;
+          ctx.save(); ctx.rotate(a);
+          cpPolygon(ctx, [[0,-10],[-15,-40],[15,-40]]);
+          ctx.restore();
+        }
+        cpCircle(ctx, 0, 0, 10);
+      } },
+      { name: 'Blob Cluster', draw: (ctx) => {
+        [
+          {cx:-25,cy:-20,r:35,v:[1,0.85,1.1,0.9,1,0.8,1.05,0.9]},
+          {cx:30,cy:-15,r:30,v:[0.9,1.1,0.85,1,0.95,1.15,0.85,1]},
+          {cx:-10,cy:35,r:32,v:[1,0.9,1.1,0.85,1.05,0.9,1,0.95]},
+          {cx:35,cy:40,r:25,v:[0.85,1.05,0.9,1.1,0.9,1,0.95,1.05]},
+          {cx:-40,cy:20,r:22,v:[1,0.8,1.1,0.9,1,0.85,1.05,0.9]},
+        ].forEach(b => cpBlob(ctx, b.cx, b.cy, b.r, b.v));
+      } },
+      { name: 'Wave Bands', draw: (ctx) => {
+        const startY = -75, spacing = 40, steps = 20, width = 180, amp = 12;
+        for (let b = 0; b < 4; b++) {
+          const y = startY + b * spacing;
+          ctx.beginPath();
+          for (let i = 0; i <= steps; i++) {
+            const x = -width / 2 + (i / steps) * width;
+            const yy = y + amp * Math.sin((i / steps) * Math.PI * 3);
+            if (i === 0) ctx.moveTo(x,yy); else ctx.lineTo(x,yy);
+          }
+          for (let i = steps; i >= 0; i--) {
+            const x = -width / 2 + (i / steps) * width;
+            const yy = y + 18 + amp * Math.sin((i / steps) * Math.PI * 3);
+            ctx.lineTo(x,yy);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        }
+      } },
+      { name: 'Spiral', draw: (ctx) => {
+        ctx.beginPath();
+        const turns = 3.5, steps = 100;
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps, a = t * turns * Math.PI * 2, r = 5 + t * 90;
+          const x = r * Math.cos(a), y = r * Math.sin(a);
+          if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+      } },
+    ],
+  };
+
+  function coloringDrawContext(ctx, size, drawFn) {
+    ctx.save();
+    ctx.strokeStyle = '#242424';
+    ctx.lineWidth = 3.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    const scale = size / 200;
+    ctx.scale(scale, scale);
+    drawFn(ctx);
+    ctx.restore();
+  }
+
+  function applyColoringPage(item) {
+    commitText();
+    pc.fillStyle = '#ffffff';
+    pc.fillRect(0, 0, A4_W, A4_H);
+    pc.save();
+    pc.translate(A4_W / 2, A4_H / 2);
+    coloringDrawContext(pc, Math.min(A4_W, A4_H) * 0.78, item.draw);
+    pc.restore();
+    render();
+    saveState();
+  }
+
+  const coloringGalleryEl = document.getElementById('coloring-gallery');
+  const coloringCategoryRow = document.getElementById('coloring-category-row');
+  let coloringCategory = 'animals';
+
+  function renderColoringGallery() {
+    if (!coloringGalleryEl) return;
+    coloringGalleryEl.innerHTML = '';
+    coloringPages[coloringCategory].forEach((item) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'coloring-thumb';
+      btn.title = item.name;
+      const canvas = document.createElement('canvas');
+      canvas.width = 60; canvas.height = 60;
+      const cctx = canvas.getContext('2d');
+      cctx.translate(30, 30);
+      coloringDrawContext(cctx, 52, item.draw);
+      const label = document.createElement('span');
+      label.textContent = item.name;
+      btn.appendChild(canvas);
+      btn.appendChild(label);
+      btn.addEventListener('click', () => applyColoringPage(item));
+      coloringGalleryEl.appendChild(btn);
+    });
+  }
+
+  if (coloringCategoryRow) {
+    const catBtns = coloringCategoryRow.querySelectorAll('.toggle-btn');
+    catBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        catBtns.forEach((b) => b.classList.toggle('active', b === btn));
+        coloringCategory = btn.dataset.category;
+        renderColoringGallery();
+      });
+    });
+  }
+
+  renderColoringGallery();
+
   function applyResize(obj, handle, dx, dy) {
     if (obj.type === 'triangle' && obj.pts) {
       const snap = resizeSnap.pts[handle];
@@ -1097,7 +1553,7 @@
 
   function selectDown(x, y) {
     commitText();
-    // Check resize handles on currently selected object
+    // Check resize handles on currently selected object, then drag it if clicked inside
     if (selectedId !== null) {
       const selObj = objects.find(o => o.id===selectedId);
       if (selObj && selObj.type!=='text') {
@@ -1108,8 +1564,18 @@
           dragStartX=x; dragStartY=y; isDragging=false; return;
         }
       }
+      // Clicking within the already-selected shape drags it without switching to an overlapping shape
+      if (selObj && hitTest(selObj, x, y)) {
+        isDragging=true; isResizing=false;
+        dragStartX=x; dragStartY=y;
+        dragSnap=JSON.parse(JSON.stringify(selObj)); didMove=false;
+        if (selObj.type==='text') syncSidebarToTextObj(selObj);
+        render(); renderOverlay(); updateSelectUI(); return;
+      }
     }
-    const hit = [...objects].reverse().find(o => o.id!==selectedId && hitTest(o, x, y));
+    const allHits = objects.filter(o => o.id!==selectedId && hitTest(o, x, y));
+    const hit = allHits.length === 0 ? null
+      : allHits.reduce((a, b) => { const ba=getBounds(a), bb=getBounds(b); return ba.w*ba.h <= bb.w*bb.h ? a : b; });
     if (hit) {
       selectedId=hit.id; isDragging=true; isResizing=false;
       dragStartX=x; dragStartY=y;
@@ -1224,6 +1690,7 @@
 
   // ── Pointer events ─────────────────────────────────────────
   const SHAPE_TOOLS = new Set(['rect','square','ellipse','line','arrow','triangle','hexagon','parallelogram','star','curve']);
+  const CENTER_SHAPE_TOOLS = new Set(['rect','square','ellipse','hexagon','parallelogram','star']);
 
   mainCanvas.addEventListener('mousedown', onDown);
   document.addEventListener('mousemove',  onMove);
@@ -1287,7 +1754,14 @@
     }
     if (tool==='pen'||tool==='brush'||tool==='eraser') freehandMove(x,y);
     if (tool==='spray') doSpray(x,y);
-    if (SHAPE_TOOLS.has(tool)) previewShape(startX,startY,x,y);
+    if (SHAPE_TOOLS.has(tool)) {
+      if (CENTER_SHAPE_TOOLS.has(tool)) {
+        const dx=Math.abs(x-startX), dy=Math.abs(y-startY);
+        previewShape(Math.max(0,startX-dx), Math.max(0,startY-dy), Math.min(A4_W,startX+dx), Math.min(A4_H,startY+dy));
+      } else {
+        previewShape(startX, startY, x, y);
+      }
+    }
   }
 
   function onUp(e) {
@@ -1309,6 +1783,9 @@
         newObj = { id:makeId(), type:'triangle',
           pts:[{x:Math.round((startX+x)/2),y:startY},{x,y},{x:startX,y}],
           color, size:brushSize, style:shapeStyle, angle:0 };
+      } else if (CENTER_SHAPE_TOOLS.has(tool)) {
+        const dx=Math.abs(x-startX), dy=Math.abs(y-startY);
+        newObj = { id:makeId(), type:tool, x1:Math.max(0,startX-dx),y1:Math.max(0,startY-dy),x2:Math.min(A4_W,startX+dx),y2:Math.min(A4_H,startY+dy), color,size:brushSize,style:shapeStyle, angle:0 };
       } else {
         newObj = { id:makeId(), type:tool, x1:startX,y1:startY,x2:x,y2:y, color,size:brushSize,style:shapeStyle, angle:0 };
       }
@@ -1384,11 +1861,12 @@
       render(); renderOverlay(); updateSelectUI();
     }
 
-    if (mandalaModeBtn) {
-      mandalaModeBtn.classList.toggle('active', enabled);
-      mandalaModeBtn.title = enabled ? 'Switch to Sketch mode' : 'Switch to Mandala mode';
+    if (modeSketchBtn && modeMandalaBtn) {
+      modeSketchBtn.classList.toggle('active', !enabled);
+      modeMandalaBtn.classList.toggle('active', enabled);
     }
     if (sidebar) sidebar.classList.toggle('mandala-mode', enabled);
+    document.body.classList.toggle('mandala-mode', enabled);
     if (mandalaSection) mandalaSection.style.display = enabled ? 'block' : 'none';
     if (fillTextSection) fillTextSection.style.display = enabled ? 'none' : 'block';
     if (selectSection) selectSection.style.display = 'block';
@@ -1404,7 +1882,7 @@
 
     document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => {
       const toolName = btn.dataset.tool;
-      const allowed = ['pen','brush','spray','eraser','rect','square','ellipse','line','arrow','triangle','hexagon','parallelogram','star','curve','select'];
+      const allowed = ['pen','brush','spray','eraser','fill','rect','square','ellipse','line','arrow','triangle','hexagon','parallelogram','star','curve','select'];
       btn.style.display = enabled ? (allowed.includes(toolName) ? '' : 'none') : '';
     });
 
@@ -1431,7 +1909,8 @@
 
   // ── UI wiring ──────────────────────────────────────────────
   document.querySelectorAll('.tool-btn[data-tool]').forEach(btn => btn.addEventListener('click', () => selectTool(btn.dataset.tool)));
-  if (mandalaModeBtn) mandalaModeBtn.addEventListener('click', () => setMandalaMode(!mandalaMode));
+  if (modeSketchBtn) modeSketchBtn.addEventListener('click', () => setMandalaMode(false));
+  if (modeMandalaBtn) modeMandalaBtn.addEventListener('click', () => setMandalaMode(true));
 
   sizeSlider.addEventListener('input', () => { brushSize=parseInt(sizeSlider.value); sizeDisplay.textContent=brushSize; });
 

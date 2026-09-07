@@ -1,6 +1,16 @@
 /* ── Reset ── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+:root {
+  --canvas-bg: #dde1e7;
+  --canvas-ring: transparent;
+}
+
+body.mandala-mode {
+  --canvas-bg: #f5e8da;
+  --canvas-ring: rgba(240, 130, 40, 0.35);
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background: #dde1e7;
@@ -29,154 +39,62 @@ body {
   gap: 0;
 }
 
-#sidebar.mandala-mode {
-  background: radial-gradient(circle at top left, #ffecf8 0%, #f2f4ff 35%, #fff7d6 70%);
-  border-right: none;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);
+/* mandala mode — same appearance as sketch */
+#sidebar.mandala-mode #logo              { order: -3; }
+#sidebar.mandala-mode .mandala-mode-row  { order: -2; background: transparent; border: none; padding: 0; margin-bottom: 12px; }
+#sidebar.mandala-mode #mandala-section   { order: -1; }
+
+#sidebar.mandala-mode #mandala-btn {
+  width: 100%;
+  min-height: 28px;
+  height: auto;
+  font-size: 11px;
 }
 
-#sidebar.mandala-mode .section-label {
-  color: #6b3d87;
+/* ── Mode switch (Sketch / Mandala) ── */
+#mode-toggle-row { padding: 2px 0 4px; }
+
+/* ── Coloring pages gallery ── */
+.coloring-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 8px;
 }
 
-#sidebar.mandala-mode .tool-btn {
-  border-color: rgba(107,61,135,0.4);
-  background: #fff9fb;
-  color: #4b2f56;
-}
-
-#sidebar.mandala-mode .tool-btn:hover {
-  background: #ffe7ff;
-  border-color: #a065c0;
-  color: #67277f;
-}
-
-#sidebar.mandala-mode .tool-btn.active {
-  background: linear-gradient(135deg, #e48ef5, #ffca75);
-  border-color: #d66fd9;
-  color: #2b1135;
-}
-
-#sidebar.mandala-mode #logo {
-  color: #4c2b5f;
-  border-bottom: none;
-}
-
-#sidebar.mandala-mode .tool-section {
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(183, 139, 222, 0.35);
-  border-radius: 16px;
-  padding: 10px;
-}
-
-#sidebar.mandala-mode .tool-section:not(:last-child) {
-  margin-bottom: 14px;
-}
-
-#sidebar.mandala-mode .mandala-mode-row {
-  background: transparent;
-  border: none;
-  padding: 0;
-  margin-bottom: 12px;
-}
-
-#sidebar.mandala-mode .color-picker-row,
-#sidebar.mandala-mode .toggle-row,
-#sidebar.mandala-mode .text-style-row {
-  background: rgba(255,255,255,0.9);
-  border-radius: 12px;
-  padding: 6px;
-}
-
-#sidebar.mandala-mode .color-swatch.selected {
-  border-color: #d66fd9;
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.9) inset;
-}
-
-#sidebar.mandala-mode #mandala-mode-btn {
-  background: linear-gradient(to bottom, #b8a0cc, #ceb8e8);
-  border-color: rgba(140,80,180,0.3);
-  box-shadow:
-    inset 0 2px 5px rgba(80,30,120,0.22),
-    inset 0 1px 2px rgba(80,30,120,0.1),
-    0 1px 0 rgba(255,255,255,0.7);
-}
-
-#sidebar.mandala-mode #logo {
-  padding-bottom: 14px;
-}
-
-#sidebar::-webkit-scrollbar-thumb { background: #cfa7e0; }
-
-/* Mandala / Sketch toggle */
-#mandala-toggle-wrapper {
+.coloring-thumb {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 7px;
-  justify-content: center;
-}
-
-.mandala-toggle-label {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #b0b6c0;
-  user-select: none;
-  transition: color 0.2s;
-}
-
-#mandala-toggle-wrapper:has(#mandala-mode-btn:not(.active)) .sketch-label { color: #555; }
-#mandala-toggle-wrapper:has(#mandala-mode-btn.active) .mandala-label { color: #555; }
-
-#mandala-mode-btn {
-  width: 52px;
-  height: 26px;
-  border-radius: 13px;
-  background: linear-gradient(to bottom, #c0c5cd, #d8dce4);
-  border: 1px solid rgba(0,0,0,0.15);
-  box-shadow:
-    inset 0 2px 5px rgba(0,0,0,0.25),
-    inset 0 1px 2px rgba(0,0,0,0.1),
-    0 1px 0 rgba(255,255,255,0.8);
+  gap: 3px;
+  padding: 4px 2px 5px;
+  border: 1px solid #d0d4da;
+  border-radius: 6px;
+  background: #fff;
   cursor: pointer;
-  position: relative;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.25s, box-shadow 0.25s;
+  transition: border-color 0.1s, background-color 0.1s;
 }
 
-.mandala-toggle-knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(145deg, #f2f4f7, #c8ccd6);
-  box-shadow:
-    0 3px 6px rgba(0,0,0,0.3),
-    0 1px 2px rgba(0,0,0,0.18),
-    inset 0 1px 0 rgba(255,255,255,0.7),
-    inset 0 -1px 0 rgba(0,0,0,0.06);
-  transition: left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-              background 0.25s, box-shadow 0.25s;
+.coloring-thumb:hover { border-color: #5591e0; background: #e8f0fe; }
+
+.coloring-thumb canvas {
+  width: 100%;
+  height: auto;
+  display: block;
+  pointer-events: none;
 }
 
-#mandala-mode-btn.active .mandala-toggle-knob {
-  left: 28px;
-  background: linear-gradient(145deg, #ffb347, #ef7c00);
-  box-shadow:
-    0 3px 8px rgba(239,124,0,0.55),
-    0 1px 3px rgba(0,0,0,0.2),
-    inset 0 1px 0 rgba(255,210,120,0.5),
-    inset 0 -1px 0 rgba(150,55,0,0.2);
+.coloring-thumb span {
+  font-size: 9px;
+  color: #5a6070;
+  line-height: 1.2;
+  text-align: center;
 }
 
 /* Mandala generate button (inside Mandala panel) - peachy happy style */
 #mandala-btn {
   width: calc(100% - 20px);
-  min-height: 40px;
+  min-height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -214,7 +132,7 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: #9aa0ab;
+  color: #5a6070;
   display: block;
   margin-bottom: 6px;
 }
@@ -246,17 +164,21 @@ body {
 .tool-btn {
   width: 36px;
   height: 36px;
-  border: 1px solid #d0d4da;
-  background: #fff;
+  border: 1px solid #c4c9d4;
+  border-bottom: 3px solid #9ba3b2;
+  background: linear-gradient(to bottom, #ffffff, #eaecf1);
   border-radius: 7px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 7px;
-  transition: background 0.1s, border-color 0.1s, color 0.1s;
+  transition: background 0.1s, border-color 0.1s, color 0.1s,
+              transform 0.08s, box-shadow 0.08s, border-bottom-width 0.08s;
   color: #555;
   flex-shrink: 0;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  user-select: none;
 }
 
 .tool-btn svg {
@@ -266,15 +188,25 @@ body {
 }
 
 .tool-btn:hover {
-  background: #e8f0fe;
+  background: linear-gradient(to bottom, #ffffff, #f0f3f9);
   border-color: #5591e0;
+  border-bottom-color: #2255a0;
   color: #3a78d4;
 }
 
+.tool-btn:active:not(.active) {
+  transform: translateY(2px);
+  border-bottom-width: 1px;
+  box-shadow: 0 0 2px rgba(0,0,0,0.06);
+}
+
 .tool-btn.active {
-  background: #3a78d4;
-  border-color: #3a78d4;
+  background: linear-gradient(to bottom, #2d6abf, #4a8fe4);
+  border-color: #1e5db3;
+  border-bottom: 1px solid #1a4fa0;
   color: #fff;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+  transform: translateY(1px);
 }
 
 /* ── Size slider ── */
@@ -308,16 +240,24 @@ body {
 .toggle-btn.active { background: #3a78d4; border-color: #3a78d4; color: #fff; }
 
 /* ── Text options ── */
-#font-family {
+.styled-select {
   width: 100%;
-  padding: 5px 6px;
+  padding: 5px 24px 5px 8px;
   font-size: 11px;
+  font-family: inherit;
   border: 1px solid #d0d4da;
   border-radius: 5px;
-  background: #fff;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23808894' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E") no-repeat right 6px center / 14px 14px;
   color: #333;
   cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
 }
+
+.styled-select:hover { background-color: #e8f0fe; border-color: #5591e0; color: #3a78d4; }
+.styled-select:focus { outline: none; border-color: #3a78d4; box-shadow: 0 0 0 2px rgba(58,120,212,0.18); }
+.styled-select option { color: #333; background: #fff; }
 
 #font-size {
   width: 52px;
@@ -440,26 +380,6 @@ body {
   flex-shrink: 0;
 }
 
-#sidebar.mandala-mode ~ #canvas-area #top-bar {
-  background: radial-gradient(circle at top left, #ffecf8 0%, #f2f4ff 35%, #fff7d6 70%);
-  border-bottom: none;
-}
-
-#sidebar.mandala-mode ~ #canvas-area #top-bar .bar-brand {
-  color: #6b3d87;
-}
-
-#sidebar.mandala-mode ~ #canvas-area #top-bar button {
-  background: #fff9fb;
-  border-color: rgba(107,61,135,0.4);
-  color: #4b2f56;
-}
-
-#sidebar.mandala-mode ~ #canvas-area #top-bar button:hover {
-  background: #ffe7ff;
-  border-color: #a065c0;
-  color: #67277f;
-}
 
 .bar-group {
   display: flex;
@@ -468,21 +388,8 @@ body {
 
 .bar-brand {
   font-size: 14px;
-  color: #888;
+  color: #5a6070;
   letter-spacing: -0.3px;
-}
-
-.bar-brand strong { color: #555; }
-
-.version-tag {
-  font-size: 10px;
-  font-weight: 600;
-  background: #e0e8f8;
-  color: #3a78d4;
-  padding: 1px 5px;
-  border-radius: 3px;
-  vertical-align: middle;
-  margin-left: 4px;
 }
 
 #top-bar button {
@@ -517,7 +424,8 @@ body {
   align-items: flex-start;
   justify-content: center;
   padding: 28px;
-  background: #dde1e7;
+  background: var(--canvas-bg);
+  transition: background 0.25s;
 }
 
 #canvas-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -532,9 +440,11 @@ body {
   box-shadow:
     0 1px 3px rgba(0,0,0,0.12),
     0 4px 16px rgba(0,0,0,0.16),
-    0 12px 40px rgba(0,0,0,0.10);
+    0 12px 40px rgba(0,0,0,0.10),
+    0 0 0 3px var(--canvas-ring);
   border-radius: 1px;
   flex-shrink: 0;
+  transition: box-shadow 0.25s;
 }
 
 #main-canvas {
@@ -629,7 +539,7 @@ body {
   transition: left 0.2s ease;
   user-select: none;
 }
-#sidebar-handle::before { content: '›'; font-size: 16px; color: #888; line-height: 1; }
+#sidebar-handle::before { content: '›'; font-size: 16px; color: #5a6070; line-height: 1; }
 #sidebar-handle.sidebar-open { left: 190px; }
 #sidebar-handle.sidebar-open::before { content: '‹'; }
 
@@ -782,6 +692,6 @@ body {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: #9aa0ab;
+  color: #5a6070;
   margin: 12px 0 4px;
 }
